@@ -12,7 +12,6 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 # ---------------------------------------------
 # لیست جفت‌ارزهای فیوچرز مد نظر شما
-# دقت کنید که .P در انتهای آن‌ها قرار دارد
 # ---------------------------------------------
 PAIRS = [
     "BTCUSDT.P", "ETHUSDT.P", "SOLUSDT.P", "BNBUSDT.P", "XRPUSDT.P",
@@ -22,7 +21,7 @@ PAIRS = [
 def check_binance_futures_prices():
     """بررسی قیمت‌ها از API فیوچرز بایننس"""
     for pair in PAIRS:
-        # حذف کردن .P برای ارسال به سرور بایننس (سرور بایننس .P را نمی‌شناسد)
+        # حذف کردن .P برای ارسال به سرور بایننس
         symbol_for_api = pair.replace(".P", "")
         
         # آدرس API فیوچرز بایننس (fapi)
@@ -36,15 +35,25 @@ def check_binance_futures_prices():
             # بایننس درصد تغییرات ۲۴ ساعته را در این فیلد می‌فرستد
             change = float(data.get('priceChangePercent', 0.0))
             
-            # اگر رشد ۳ درصد یا بیشتر بود
-            if change >= 2.0:
-                # پاک کردن .P و USDT برای زیبایی پیام (مثلا میشه BTC)
+            # شرط جدید: اگر رشد 3+ بود یا ریزش 3- بود
+            if change >= 3.0 or change <= -3.0:
+                
+                # پاک کردن .P و USDT برای زیبایی پیام (مثلا میشه SOL)
                 symbol_clean = pair.replace(".P", "").replace("USDT", "")
                 
-                message = f"🚀 فیوچرز {symbol_clean}، رشد {change:.2f} درصد"
+                # تشخیص اینکه رشد کرده یا ریزش تا ایموجی مناسب بگذاریم
+                if change >= 3.0:
+                    emoji = "🚀"
+                    action_word = "رشد"
+                else:
+                    emoji = "📉"
+                    action_word = "ریزش"
+                    
+                message = f"{emoji} فیوچرز {symbol_clean}، {action_word} {change:.2f} درصد"
+                
                 try:
                     bot.send_message(CHANNEL_ID, message)
-                    print(f"آلارم فیوچرز ارسال شد: {pair} با رشد {change}%")
+                    print(f"آلارم ارسال شد: {pair} با تغییرات {change}%")
                 except Exception as e:
                     print(f"خطا در ارسال پیام تلگرام: {e}")
                     

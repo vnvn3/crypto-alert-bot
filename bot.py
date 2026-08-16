@@ -11,20 +11,22 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ---------------------------------------------
-# لیست جفت‌ارزهای مد نظر شما در بایننس
-# می‌توانید به هر تعداد که خواستید اضافه کنید
+# لیست جفت‌ارزهای فیوچرز مد نظر شما
+# دقت کنید که .P در انتهای آن‌ها قرار دارد
 # ---------------------------------------------
 PAIRS = [
-    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
-    "MATICUSDT", "SHIBUSDT", "LTCUSDT", "ATOMUSDT", "UNIUSDT"
+    "BTCUSDT.P", "ETHUSDT.P", "SOLUSDT.P", "BNBUSDT.P", "XRPUSDT.P",
+    "DOGEUSDT.P", "ADAUSDT.P", "AVAXUSDT.P", "DOTUSDT.P", "LINKUSDT.P"
 ]
 
-def check_binance_prices():
-    """بررسی قیمت‌ها از API بایننس"""
+def check_binance_futures_prices():
+    """بررسی قیمت‌ها از API فیوچرز بایننس"""
     for pair in PAIRS:
-        # لینکی که خودتان دادید (اسپات بایننس)
-        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={pair}"
+        # حذف کردن .P برای ارسال به سرور بایننس (سرور بایننس .P را نمی‌شناسد)
+        symbol_for_api = pair.replace(".P", "")
+        
+        # آدرس API فیوچرز بایننس (fapi)
+        url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={symbol_for_api}"
         
         try:
             response = requests.get(url, timeout=10)
@@ -35,14 +37,14 @@ def check_binance_prices():
             change = float(data.get('priceChangePercent', 0.0))
             
             # اگر رشد ۳ درصد یا بیشتر بود
-            if change >= 3.0:
-                # حذف کردن 'USDT' از انتهای نام برای زیبایی پیام (اختیاری)
-                symbol_clean = pair.replace("USDT", "")
+            if change >= 2.0:
+                # پاک کردن .P و USDT برای زیبایی پیام (مثلا میشه BTC)
+                symbol_clean = pair.replace(".P", "").replace("USDT", "")
                 
-                message = f"🚀 ارز {symbol_clean}، رشد {change:.2f} درصد"
+                message = f"🚀 فیوچرز {symbol_clean}، رشد {change:.2f} درصد"
                 try:
                     bot.send_message(CHANNEL_ID, message)
-                    print(f"آلارم ارسال شد: {pair} با رشد {change}%")
+                    print(f"آلارم فیوچرز ارسال شد: {pair} با رشد {change}%")
                 except Exception as e:
                     print(f"خطا در ارسال پیام تلگرام: {e}")
                     
@@ -62,8 +64,8 @@ def main():
         return
 
     # 2. شروع بررسی قیمت‌ها
-    print(f"شروع بررسی لیست {len(PAIRS)} جفت‌ارز...")
-    check_binance_prices()
+    print(f"شروع بررسی لیست {len(PAIRS)} جفت‌ارز فیوچرز...")
+    check_binance_futures_prices()
     print("بررسی به پایان رسید.")
 
 if __name__ == "__main__":

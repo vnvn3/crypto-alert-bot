@@ -10,7 +10,7 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# لیست سیاه استیبل کوین‌ها و توکن‌های بدون نوسان (برای حذف از لیست 60 تایی)
+# لیست سیاه استیبل کوین‌ها
 STABLECOINS = [
     'tether', 'usd-coin', 'dai', 'binance-usd', 'staked-ether', 
     'true-usd', 'frax', 'first-digital-usd', 'ethena-usde', 'paypal-usd',
@@ -18,9 +18,7 @@ STABLECOINS = [
 ]
 
 def get_top_coins_data(limit=60):
-    """دریافت داینامیک 60 ارز اول مارکت"""
     url = "https://api.coingecko.com/api/v3/coins/markets"
-    # ما 75 تا درخواست می‌کنیم تا بعد از حذف استیبل‌کوین‌ها، دقیقاً 60 تا باقی بماند
     params = {
         'vs_currency': 'usd',
         'order': 'market_cap_desc',
@@ -37,15 +35,13 @@ def get_top_coins_data(limit=60):
         
         valid_coins = []
         for coin in raw_data:
-            # اگر ارز در لیست استیبل‌کوین‌ها نبود، اضافه کن
             if coin['id'] not in STABLECOINS:
                 valid_coins.append({
                     'name': coin['name'],
-                    'symbol': coin['symbol'].upper(), # مثلاً BNB یا BTC
+                    'symbol': coin['symbol'].upper(),
                     'change': coin.get('price_change_percentage_24h_in_currency')
                 })
                 
-            # وقتی به 60 ارز رسیدیم، دیگر حلقه را ادامه نده
             if len(valid_coins) >= limit:
                 break
                 
@@ -56,27 +52,17 @@ def get_top_coins_data(limit=60):
         return None
 
 def main():
-    # 1. بررسی ساعت به وقت تهران
-    tehran_tz = timezone('Asia/Tehran')
-    now_tehran = datetime.now(tehran_tz)
-    current_hour = now_tehran.hour
-    
-    if not (9 <= current_hour < 22):
-        print("خارج از ساعات کاری (9 تا 22). اجرا لغو شد.")
-        return
+    # شرط ساعت کاملاً حذف شد تا 24 ساعته تست کنید
 
-    # 2. دریافت لیست 60 ارز برتر
     coins_data = get_top_coins_data(limit=60)
     if not coins_data:
         return
 
-    # 3. بررسی رشد و ارسال آلارم
     for coin in coins_data:
         change = coin['change']
         
-        # اگر رشد 3 درصد یا بیشتر بود
-        if change is not None and change >= 3.0:
-            # فرمت پیام: مثلا "🚀 ارز BNB، رشد 3.50 درصد"
+        # شرط رشد موقتاً روی 0.0 تنظیم شد تا هر ارز سبزی هم پیام بدهد (فقط برای تست)
+        if change is not None and change >= 0.0:
             message = f"🚀 ارز {coin['symbol']}، رشد {change:.2f} درصد"
             try:
                 bot.send_message(CHANNEL_ID, message)

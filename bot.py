@@ -10,65 +10,61 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# لیست سیاه استیبل کوین‌ها
-STABLECOINS = [
-    'tether', 'usd-coin', 'dai', 'binance-usd', 'staked-ether', 
-    'true-usd', 'frax', 'first-digital-usd', 'ethena-usde', 'paypal-usd',
-    'magic-internet-money', 'usdd', 'gemini-dollar', 'fei-usd', 'terrausd'
+# ---------------------------------------------
+# لیست جفت‌ارزهای مد نظر شما در بایننس
+# می‌توانید به هر تعداد که خواستید اضافه کنید
+# ---------------------------------------------
+PAIRS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
+    "MATICUSDT", "SHIBUSDT", "LTCUSDT", "ATOMUSDT", "UNIUSDT"
 ]
 
-def get_top_coins_data(limit=60):
-    url = "https://api.coingecko.com/api/v3/coins/markets"
-    params = {
-        'vs_currency': 'usd',
-        'order': 'market_cap_desc',
-        'per_page': limit + 15,
-        'page': 1,
-        'sparkline': 'false',
-        'price_change_percentage': '24h'
-    }
-    
-    try:
-        response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        raw_data = response.json()
+def check_binance_prices():
+    """بررسی قیمت‌ها از API بایننس"""
+    for pair in PAIRS:
+        # لینکی که خودتان دادید (اسپات بایننس)
+        url = f"https://api.binance.com/api/v3/ticker/24hr?symbol={pair}"
         
-        valid_coins = []
-        for coin in raw_data:
-            if coin['id'] not in STABLECOINS:
-                valid_coins.append({
-                    'name': coin['name'],
-                    'symbol': coin['symbol'].upper(),
-                    'change': coin.get('price_change_percentage_24h_in_currency')
-                })
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            
+            # بایننس درصد تغییرات ۲۴ ساعته را در این فیلد می‌فرستد
+            change = float(data.get('priceChangePercent', 0.0))
+            
+            # اگر رشد ۳ درصد یا بیشتر بود
+            if change >= 3.0:
+                # حذف کردن 'USDT' از انتهای نام برای زیبایی پیام (اختیاری)
+                symbol_clean = pair.replace("USDT", "")
                 
-            if len(valid_coins) >= limit:
-                break
-                
-        return valid_coins
-        
-    except Exception as e:
-        print(f"Error fetching market data: {e}")
-        return None
+                message = f"🚀 ارز {symbol_clean}، رشد {change:.2f} درصد"
+                try:
+                    bot.send_message(CHANNEL_ID, message)
+                    print(f"آلارم ارسال شد: {pair} با رشد {change}%")
+                except Exception as e:
+                    print(f"خطا در ارسال پیام تلگرام: {e}")
+                    
+        except requests.exceptions.RequestException as e:
+            print(f"خطا در دریافت دیتا از بایننس برای {pair}: {e}")
+        except ValueError:
+            print(f"دیتای نامعتبر از بایننس دریافت شد برای {pair}")
 
 def main():
-    # شرط ساعت کاملاً حذف شد تا 24 ساعته تست کنید
-
-    coins_data = get_top_coins_data(limit=60)
-    if not coins_data:
+    # 1. بررسی ساعت به وقت تهران (9 تا 23)
+    tehran_tz = timezone('Asia/Tehran')
+    now_tehran = datetime.now(tehran_tz)
+    current_hour = now_tehran.hour
+    
+    if not (9 <= current_hour < 23):
+        print("خارج از ساعات کاری (9 تا 23). اجرا لغو شد.")
         return
 
-    for coin in coins_data:
-        change = coin['change']
-        
-        # شرط رشد موقتاً روی 0.0 تنظیم شد تا هر ارز سبزی هم پیام بدهد (فقط برای تست)
-        if change is not None and change >= 0.0:
-            message = f"🚀 ارز {coin['symbol']}، رشد {change:.2f} درصد"
-            try:
-                bot.send_message(CHANNEL_ID, message)
-                print(f"آلارم ارسال شد: {coin['symbol']}")
-            except Exception as e:
-                print(f"خطا در ارسال پیام: {e}")
+    # 2. شروع بررسی قیمت‌ها
+    print(f"شروع بررسی لیست {len(PAIRS)} جفت‌ارز...")
+    check_binance_prices()
+    print("بررسی به پایان رسید.")
 
 if __name__ == "__main__":
     main()

@@ -14,9 +14,29 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # لیست جفت‌ارزهای فیوچرز مد نظر شما
 # ---------------------------------------------
 PAIRS = [
+    # top 10 (مهم‌ترین‌ها)
     "BTCUSDT.P", "ETHUSDT.P", "SOLUSDT.P", "BNBUSDT.P", "XRPUSDT.P",
-    "DOGEUSDT.P", "ADAUSDT.P", "AVAXUSDT.P", "DOTUSDT.P", "LINKUSDT.P"
+    "DOGEUSDT.P", "ADAUSDT.P", "AVAXUSDT.P", "DOTUSDT.P", "LINKUSDT.P",
+    
+    # آلت‌کوین‌های با حجم بالا و لایه 1
+    "SUIUSDT.P", "NEARUSDT.P", "INJUSDT.P", "HYPEUSDT.P", "FTMUSDT.P",
+    "APTUSDT.P", "SEIUSDT.P", "TIAUSDT.P", "ATOMUSDT.P", "RUNEUSDT.P",
+    
+    # دفای و لایه 2
+    "AAVEUSDT.P", "UNIUSDT.P", "ARBUSDT.P", "OPUSDT.P", "FILUSDT.P",
+    "ONDOUSDT.P", "POLUSDT.P", "IMXUSDT.P", "ENASUSDT.P", "RENDERUSDT.P",
+    
+    # میم‌کوین‌ها و توکن‌های محبوب اخیر
+    "PEPEUSDT.P", "WIFUSDT.P", "BONKUSDT.P", "SHIBUSDT.P", "FLOKIUSDT.P",
+    "PYTHUSDT.P", "JUPUSDT.P", "WUSDT.P", "ZROUSDT.P", "IOUSDT.P",
+    
+    # کلاسیک‌ها و مابقی بازار
+    "LTCUSDT.P", "BCHUSDT.P", "TRXUSDT.P", "ETCUSDT.P", "XLMUSDT.P",
+    "ALGOUSDT.P", "SNXUSDT.P", "ZECUSDT.P", "ICPUSDT.P", "KASUSDT.P",
+    "ORDIUSDT.P", "1000SATSUSDT.P", "WLDUSDT.P", "LDOUSDT.P", "MKRUSDT.P",
+    "STXUSDT.P", "CRVUSDT.P", "SANDUSDT.P", "MANAUSDT.P", "GRTUSDT.P"
 ]
+
 
 def check_binance_futures_prices():
     """بررسی قیمت‌ها از API فیوچرز بایننس"""

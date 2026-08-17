@@ -1,24 +1,20 @@
 import telebot
 import requests
-from pytz import timezone
-from datetime import datetime
 import os
 import time
 
-# --- تنظیمات ---
+# --- تنظیمات از گیت‌هاب ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID") 
+CHANNEL_ID = os.environ.get("CHANNEL_ID")
 
-# --- دیباگ ۱: چک کردن خوانده شدن توکن‌ها ---
-print(f"DEBUG: BOT_TOKEN loaded: {'Yes' if BOT_TOKEN else 'NO! TOKEN IS EMPTY'}")
-print(f"DEBUG: CHANNEL_ID loaded: {CHANNEL_ID}")
-
+# بررسی اولیه اینکه آیا توکن‌ها در گیت‌هاب تنظیم شده‌اند یا نه
 if not BOT_TOKEN or not CHANNEL_ID:
-    print("FATAL ERROR: توکن یا آیدی کانال پیدا نشد! اجرا متوقف شد.")
-    exit()
+    print("FATAL ERROR: BOT_TOKEN یا CHANNEL_ID در تنظیمات گیت‌هاب پیدا نشد!")
+    exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
+# --- لیست ۶۰ جفت ارز فیوچرز ---
 PAIRS = [
     "BTCUSDT.P", "ETHUSDT.P", "SOLUSDT.P", "BNBUSDT.P", "XRPUSDT.P",
     "DOGEUSDT.P", "ADAUSDT.P", "AVAXUSDT.P", "DOTUSDT.P", "LINKUSDT.P",
@@ -34,16 +30,21 @@ PAIRS = [
     "STXUSDT.P", "CRVUSDT.P", "SANDUSDT.P", "MANAUSDT.P", "GRTUSDT.P"
 ]
 
+# --- تابع محاسبه RSI (بدون نیاز به کتابخانه اضافی) ---
 def calculate_rsi(closes, period=14):
-    if len(closes) < period + 1: return None
+    if len(closes) < period + 1:
+        return None
     deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
     gains = [d if d > 0 else 0.0 for d in deltas]
     losses = [-d if d < 0 else 0.0 for d in deltas]
+    
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
+    
     if avg_loss == 0: return 100.0
     rs = avg_gain / avg_loss
     rsi = 100.0 - (100.0 / (1.0 + rs))
+    
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
@@ -52,7 +53,8 @@ def calculate_rsi(closes, period=14):
         rsi = 100.0 - (100.0 / (1.0 + rs))
     return rsi
 
-def get_rsi_from_binance(symbol):
+# --- تابع گرفتن RSI از بایننس ---
+def get_rsi(symbol):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=50"
     try:
         response = requests.get(url, timeout=5)
@@ -60,89 +62,68 @@ def get_rsi_from_binance(symbol):
         klines = response.json()
         closes = [float(k[4]) for k in klines]
         return calculate_rsi(closes)
-    except Exception as e:
+    except:
         return None
 
-def check_binance_futures_prices():
-    alerts_found = 0 # شمارنده تعداد آلارم‌ها
+# --- تابع اصلی بررسی و ارسال ---
+def check_and_send_alerts():
+    print(f"شروع بررسی {len(PAIRS)} ارز...")
+    alerts_sent = 0
     
     for pair in PAIRS:
-        symbol_for_api = pair.replace(".P", "")
-        url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={symbol_for_api}"
+        symbol = pair.replace(".P", "")
+        url = f"https://fapi.binance.com/fapi/v1/ticker/24hr?symbol={symbol}"
         
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
-            
             change = float(data.get('priceChangePercent', 0.0))
             
-            # --- دیباگ ۲: اگر ارزی نزدیک به شرط بود چاپ کن تا بدانیم کد کار میکند ---
-            if abs(change) > 2.0: 
-                print(f"DEBUG: {pair} change is {change:.2f}% (نزدیک به شرط 3 درصد)")
-            
-            if change >= 3.0 or change <= -3.0:
-                alerts_found += 1
-                print(f"DEBUG: شرط برقرار شد برای {pair}! در حال دریافت RSI...")
+            # شرط جدید: 2+ یا 2-
+            if change >= 2.0 or change <= -2.0:
+                print(f"سیگنال پیدا شد: {pair} با تغییرات {change:.2f}%")
                 
-                rsi = get_rsi_from_binance(symbol_for_api)
-                time.sleep(0.1)
+                # دریافت RSI
+                rsi = get_rsi(symbol)
+                time.sleep(0.1) # مکث برای جلوگیری از بن شدن آی‌پی توسط بایننس
                 
-                rsi_text = "غیرقابل محاسبه"
-                rsi_emoji = "⚠️"
+                # تشخیص وضعیت RSI
                 if rsi is not None:
                     if rsi >= 70:
-                        rsi_text = f"اشباع خرید ({rsi:.1f})"
-                        rsi_emoji = "🔴"
+                        rsi_text, rsi_emoji = f"اشباع خرید ({rsi:.1f})", "🔴"
                     elif rsi <= 30:
-                        rsi_text = f"اشباع فروش ({rsi:.1f})"
-                        rsi_emoji = "🟢"
+                        rsi_text, rsi_emoji = f"اشباع فروش ({rsi:.1f})", "🟢"
                     else:
-                        rsi_text = f"خنثی ({rsi:.1f})"
-                        rsi_emoji = "⚪"
-                
-                symbol_clean = pair.replace(".P", "").replace("USDT", "")
-                
-                if change >= 3.0:
-                    emoji, action_word = "🚀", "رشد"
+                        rsi_text, rsi_emoji = f"خنثی ({rsi:.1f})", "⚪"
                 else:
-                    emoji, action_word = "📉", "ریزش"
-                    
+                    rsi_text, rsi_emoji = "خطا در محاسبه", "⚠️"
+                
+                # تنظیمات پیام
+                symbol_clean = pair.replace(".P", "").replace("USDT", "")
+                emoji, action_word = ("🚀", "رشد") if change >= 2.0 else ("📉", "ریزش")
+                
                 message = (
                     f"{emoji} <b>فیوچرز {symbol_clean}</b>\n"
-                    f"📉/🚀 {action_word}: <code>{change:.2f}%</code>\n"
-                    f"{rsi_emoji} وضعیت RSI: {rsi_text}"
+                    f"📊 {action_word}: <code>{change:.2f}%</code>\n"
+                    f"{rsi_emoji} RSI: {rsi_text}"
                 )
                 
+                # ارسال به تلگرام
                 try:
                     bot.send_message(CHANNEL_ID, message, parse_mode="HTML")
-                    print(f"✅ SUCCESS: آلارم ارسال شد برای {pair}")
+                    alerts_sent += 1
+                    print(f"✅ پیام {pair} به تلگرام ارسال شد.")
                 except Exception as e:
-                    # --- دیباگ ۳: چاپ دقیق خطای تلگرام ---
-                    print(f"❌ TELEGRAM ERROR for {pair}: {e}")
+                    print(f"❌ خطا در ارسال تلگرام برای {pair}: {e}")
                     
         except Exception as e:
-            print(f"❌ BINANCE ERROR for {pair}: {e}")
+            print(f"خطا در دریافت دیتای بایننس برای {pair}")
             
-    # --- دیباگ ۴: آیا اصلا ارزی شرط را داشت؟ ---
-    if alerts_found == 0:
-        print("INFO: بررسی تمام شد. هیچ ارزی تغییرات 3 درصدی نداشت.")
-
-def main():
-    tehran_tz = timezone('Asia/Tehran')
-    now_tehran = datetime.now(tehran_tz)
-    current_hour = now_tehran.hour
-    
-    # --- دیباگ ۵: چاپ ساعت دقیق سرور ---
-    print(f"DEBUG: ساعت سرور (UTC): {datetime.utcnow().hour}, ساعت تهران: {current_hour}")
-    
-    if not (9 <= current_hour < 23):
-        print("INFO: خارج از ساعات کاری (9 تا 23 به وقت تهران). اجرا لغو شد.")
-        return
-
-    print(f"INFO: شروع بررسی لیست {len(PAIRS)} جفت‌ارز فیوچرز...")
-    check_binance_futures_prices()
-    print("INFO: پایان اجرای برنامه.")
+    if alerts_sent == 0:
+        print("پایان بررسی: هیچ ارزی شرط 2 درصد را نداشت.")
+    else:
+        print(f"پایان بررسی: مجموعاً {alerts_sent} آلارم ارسال شد.")
 
 if __name__ == "__main__":
-    main()
+    check_and_send_alerts()

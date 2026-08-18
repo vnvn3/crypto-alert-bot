@@ -1,4 +1,3 @@
-import telebot
 import requests
 import os
 import time
@@ -11,8 +10,6 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID")
 if not BOT_TOKEN or not CHANNEL_ID:
     print("FATAL ERROR: BOT_TOKEN یا CHANNEL_ID در تنظیمات گیت‌هاب پیدا نشد!")
     exit(1)
-
-bot = telebot.TeleBot(BOT_TOKEN)
 
 # --- لیست ۶۰ جفت ارز فیوچرز ---
 PAIRS = [
@@ -30,7 +27,7 @@ PAIRS = [
     "STXUSDT.P", "CRVUSDT.P", "SANDUSDT.P", "MANAUSDT.P", "GRTUSDT.P"
 ]
 
-# --- تابع محاسبه RSI (بدون نیاز به کتابخانه اضافی) ---
+# --- تابع محاسبه RSI ---
 def calculate_rsi(closes, period=14):
     if len(closes) < period + 1:
         return None
@@ -57,13 +54,33 @@ def calculate_rsi(closes, period=14):
 def get_rsi(symbol):
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=50"
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         klines = response.json()
         closes = [float(k[4]) for k in klines]
         return calculate_rsi(closes)
-    except:
+    except Exception as e:
+        print(f"خطا در دریافت RSI برای {symbol}: {e}")
         return None
+
+# --- تابع ارسال به تلگرام با requests (بدون telebot) ---
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHANNEL_ID,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        response.raise_for_status() # اگر خطایی باشه اینجا کرش میکنه تا تیک قرمز بشه
+        result = response.json()
+        if not result.get("ok"):
+            print(f"خطای تلگرام: {result}")
+            raise Exception("Telegram API Error")
+    except Exception as e:
+        print(f"❌ خطا در ارسال پیام به تلگرام: {e}")
+        raise e # پرتاب خطا تا گیت‌هاب متوجه شود
 
 # --- تابع اصلی بررسی و ارسال ---
 def check_and_send_alerts():
@@ -80,15 +97,13 @@ def check_and_send_alerts():
             data = response.json()
             change = float(data.get('priceChangePercent', 0.0))
             
-            # شرط جدید: 2+ یا 2-
+            # شرط: برای تست ابتدا 0.1 را بگذارید، بعداً به 2.0 تغییر دهید
             if change >= 2.0 or change <= -2.0:
                 print(f"سیگنال پیدا شد: {pair} با تغییرات {change:.2f}%")
                 
-                # دریافت RSI
                 rsi = get_rsi(symbol)
-                time.sleep(0.1) # مکث برای جلوگیری از بن شدن آی‌پی توسط بایننس
+                time.sleep(0.2) # مکث برای جلوگیری از بن شدن
                 
-                # تشخیص وضعیت RSI
                 if rsi is not None:
                     if rsi >= 70:
                         rsi_text, rsi_emoji = f"اشباع خرید ({rsi:.1f})", "🔴"
@@ -99,7 +114,6 @@ def check_and_send_alerts():
                 else:
                     rsi_text, rsi_emoji = "خطا در محاسبه", "⚠️"
                 
-                # تنظیمات پیام
                 symbol_clean = pair.replace(".P", "").replace("USDT", "")
                 emoji, action_word = ("🚀", "رشد") if change >= 2.0 else ("📉", "ریزش")
                 
@@ -109,19 +123,16 @@ def check_and_send_alerts():
                     f"{rsi_emoji} RSI: {rsi_text}"
                 )
                 
-                # ارسال به تلگرام
-                try:
-                    bot.send_message(CHANNEL_ID, message, parse_mode="HTML")
-                    alerts_sent += 1
-                    print(f"✅ پیام {pair} به تلگرام ارسال شد.")
-                except Exception as e:
-                    print(f"❌ خطا در ارسال تلگرام برای {pair}: {e}")
+                send_telegram_message(message)
+                alerts_sent += 1
+                print(f"✅ پیام {pair} با موفقیت ارسال شد.")
+                time.sleep(1) # مکث بین ارسال پیام‌ها به تلگرام
                     
         except Exception as e:
-            print(f"خطا در دریافت دیتای بایننس برای {pair}")
+            print(f"خطا در دریافت دیتای بایننس برای {pair}: {e}")
             
     if alerts_sent == 0:
-        print("پایان بررسی: هیچ ارزی شرط 2 درصد را نداشت.")
+        print("پایان بررسی: هیچ ارزی شرط را نداشت (تیک سبز اما بدون ارسال پیام طبیعی است).")
     else:
         print(f"پایان بررسی: مجموعاً {alerts_sent} آلارم ارسال شد.")
 

@@ -1,101 +1,3 @@
-import requests
-import os
-import time
-
-# --- تنظیمات از گیت‌هاب ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")
-
-if not BOT_TOKEN or not CHANNEL_ID:
-    print("FATAL ERROR: BOT_TOKEN یا CHANNEL_ID در تنظیمات گیت‌هاب پیدا نشد!")
-    exit(1)
-
-# --- لیست ۸۰ جفت ارز فیوچرز (بهینه شده) ---
-PAIRS = [
-    # ترندهای برتر
-    "BTCUSDT.P", "ETHUSDT.P", "SOLUSDT.P", "BNBUSDT.P", "XRPUSDT.P",
-    "DOGEUSDT.P", "ADAUSDT.P", "AVAXUSDT.P", "DOTUSDT.P", "LINKUSDT.P",
-    "SUIUSDT.P", "NEARUSDT.P", "INJUSDT.P", "HYPEUSDT.P", "FTMUSDT.P",
-    "APTUSDT.P", "SEIUSDT.P", "TIAUSDT.P", "ATOMUSDT.P", "RUNEUSDT.P",
-    
-    # دیفای و لایه دو
-    "AAVEUSDT.P", "UNIUSDT.P", "ARBUSDT.P", "OPUSDT.P", "FILUSDT.P",
-    "ONDOUSDT.P", "POLUSDT.P", "IMXUSDT.P", "ENAUSDT.P", "RENDERUSDT.P",
-    "PEPEUSDT.P", "WIFUSDT.P", "BONKUSDT.P", "SHIBUSDT.P", "FLOKIUSDT.P",
-    "PYTHUSDT.P", "JUPUSDT.P", "WUSDT.P", "ZROUSDT.P", "IOUSDT.P",
-    
-    # پایه و قدیمی‌تر
-    "LTCUSDT.P", "BCHUSDT.P", "TRXUSDT.P", "ETCUSDT.P", "XLMUSDT.P",
-    "ALGOUSDT.P", "SNXUSDT.P", "ZECUSDT.P", "ICPUSDT.P", "KASUSDT.P",
-    "ORDIUSDT.P", "1000SATSUSDT.P", "WLDUSDT.P", "LDOUSDT.P", "MKRUSDT.P",
-    "STXUSDT.P", "CRVUSDT.P", "SANDUSDT.P", "MANAUSDT.P", "GRTUSDT.P","THETAUSDT.P"
-    
-    # توکن‌های جدید و پرنوسان (شامل تسلا)
-    "TSLAUSDT.P", "NOTUSDT.P", "ZKUSDT.P", "BBUSDT.P", "LISTAUSDT.P",
-    "AEVOUSDT.P", "BOMEUSDT.P", "MEWUSDT.P", "POPCATUSDT.P", "NEIROUSDT.P",
-    "GOATUSDT.P", "DRIFTUSDT.P", "JTOUSDT.P", "BLURUSDT.P", "PENDLEUSDT.P",
-    "ETHFIUSDT.P", "WUSDT.P", "REZUSDT.P", "GRAMUSDT.P", "JUPUSDT.P","SPCXUSDT.P","SKHYUSDT.P","SNXXUSDT.P","SKHYNIXUSDT.P","SNDKUSDT.P"
-    ,"MUUSDT.P","GPSUSDT.P","KORUUSDT.P","SOXLUSDT.P"
-]
-
-# حذف ارزهای تکراری در صورت وجود (برای ایمنی)
-PAIRS = list(set(PAIRS))
-
-# --- تابع محاسبه RSI ---
-def calculate_rsi(closes, period=14):
-    if len(closes) < period + 1:
-        return None
-    deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
-    gains = [d if d > 0 else 0.0 for d in deltas]
-    losses = [-d if d < 0 else 0.0 for d in deltas]
-    
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    
-    if avg_loss == 0: return 100.0
-    rs = avg_gain / avg_loss
-    rsi = 100.0 - (100.0 / (1.0 + rs))
-    
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-        if avg_loss == 0: return 100.0
-        rs = avg_gain / avg_loss
-        rsi = 100.0 - (100.0 / (1.0 + rs))
-    return rsi
-
-# --- تابع گرفتن RSI از بایننس ---
-def get_rsi(symbol):
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=15m&limit=50"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        klines = response.json()
-        closes = [float(k[4]) for k in klines]
-        return calculate_rsi(closes)
-    except Exception as e:
-        print(f"خطا در دریافت RSI برای {symbol}: {e}")
-        return None
-
-# --- تابع ارسال به تلگرام ---
-def send_telegram_message(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHANNEL_ID,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
-        result = response.json()
-        if not result.get("ok"):
-            print(f"خطای تلگرام: {result}")
-            raise Exception("Telegram API Error")
-    except Exception as e:
-        print(f"❌ خطا در ارسال پیام به تلگرام: {e}")
-        raise e
-
 # --- تابع اصلی بررسی و ارسال ---
 def check_and_send_alerts():
     print(f"شروع بررسی {len(PAIRS)} ارز...")
@@ -125,12 +27,12 @@ def check_and_send_alerts():
             elif change <= -2.0:
                 emoji, action_word = "📉", "ریزش"
             else:
-                continue # بهینه‌سازی: اگر زیر 2 درصد بود، کلاً رد شو و زمان صرف نکن
+                continue
                 
-            # --- فقط برای ارزهایی که شرط را داشتند RSI محاسبه می‌شود ---
+            # محاسبه RSI فقط برای ارزهای سینگنال‌دار
             print(f"سیگنال پیدا شد: {pair} با تغییرات {change:.2f}%")
             rsi = get_rsi(symbol)
-            time.sleep(0.2) # مکث کوتاه برای محدودیت درخواست‌ها
+            time.sleep(0.2)
             
             if rsi is not None:
                 if rsi >= 70:
@@ -149,19 +51,30 @@ def check_and_send_alerts():
                 f"{rsi_emoji} RSI: {rsi_text}"
             )
             
+        except Exception as e:
+            print(f"خطا در دریافت دیتای بایننس برای {pair}: {e}")
+            continue # اگر بایننس جواب نداد، این ارز را رد کن
+
+        # --- ارسال به تلگرام (جداسازی شد تا ارورهای تلگرام پنهان نماند) ---
+        try:
             send_telegram_message(message)
             alerts_sent += 1
             print(f"✅ پیام {pair} ارسال شد.")
-            time.sleep(1) # مکث بین ارسال پیام‌ها به تلگرام
-                    
+            time.sleep(1)
         except Exception as e:
-            # اگر ارزی مثل TSLA در فیوچرز بایننس موجود نباشد یا خطایی بدهد، ربات متوقف نمی‌شود
-            print(f"خطا در دریافت دیتای بایننس برای {pair}: {e}")
-            
+            print(f"❌ خطای تلگرام در ارسال {pair}: {e}")
+
     if alerts_sent == 0:
-        print("پایان بررسی: هیچ ارزی شرط ۲ درصدی را نداشت (تیک سبز طبیعی است).")
+        print("پایان بررسی: هیچ ارزی شرط ۲ درصدی را نداشت.")
     else:
         print(f"پایان بررسی: مجموعاً {alerts_sent} آلارم ارسال شد.")
 
 if __name__ == "__main__":
     check_and_send_alerts()
+    
+    # --- قابلیت Heartbeat (ضربان قلب) ---
+    # این پیام هر بار اجرا ارسال می‌شود تا مطمئن شوید ربات زنده است
+    try:
+        send_telegram_message("🔄 اسکن انجام شد. بازار در حال حاضر آرام است و سیگنال جدیدی (بالای 2%) یافت نشد.")
+    except Exception as e:
+        print(f"خطا در ارسال پیام ضربان قلب! مشکل از توکن یا آیدی کانال است: {e}")

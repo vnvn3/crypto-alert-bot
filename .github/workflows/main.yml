@@ -26,4 +26,4 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-      run: python bot.py  # اینجا bot.py را عوض کردم به test_bot.py
+      run: python bot.py

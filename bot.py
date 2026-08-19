@@ -1,3 +1,51 @@
+import requests
+import time
+
+PAIRS = [
+    "BTCUSDT.P",
+    "ETHUSDT.P",
+    "BNBUSDT.P",
+    "SOLUSDT.P",
+    "XRPUSDT.P",
+    "DOGEUSDT.P",
+    "ADAUSDT.P",
+    "TRXUSDT.P",
+    "AVAXUSDT.P",
+    "LINKUSDT.P",
+    "DOTUSDT.P",
+    "MATICUSDT.P",
+    "LTCUSDT.P",
+    "BCHUSDT.P",
+    "UNIUSDT.P",
+    "ATOMUSDT.P",
+    "ETCUSDT.P",
+    "FILUSDT.P",
+    "APTUSDT.P",
+    "ARBUSDT.P",
+    "OPUSDT.P",
+    "SUIUSDT.P",
+    "SEIUSDT.P",
+    "INJUSDT.P",
+    "TIAUSDT.P",
+    "NEARUSDT.P",
+    "AAVEUSDT.P",
+    "MKRUSDT.P",
+    "ALGOUSDT.P",
+    "XLMUSDT.P",
+    "HBARUSDT.P",
+    "VETUSDT.P",
+    "ICPUSDT.P",
+    "FETUSDT.P",
+    "RENDERUSDT.P",
+    "WLDUSDT.P",
+    "PEPEUSDT.P",
+    "SHIBUSDT.P",
+    "1000BONKUSDT.P",
+    "1000FLOKIUSDT.P",
+]
+
+
+
 # --- تابع اصلی بررسی و ارسال ---
 def check_and_send_alerts():
     print(f"شروع بررسی {len(PAIRS)} ارز...")

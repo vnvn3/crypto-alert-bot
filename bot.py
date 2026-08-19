@@ -13,11 +13,10 @@ PAIRS = [
     "HBARUSDT.P", "VETUSDT.P", "ICPUSDT.P", "FETUSDT.P", "RENDERUSDT.P",
     "WLDUSDT.P", "PEPEUSDT.P", "SHIBUSDT.P", "1000BONKUSDT.P", "1000FLOKIUSDT.P",
 ]
-
 # --- تابع ارسال به تلگرام ---
 def send_telegram_message(message):
-    token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    token = os.environ.get("BOT_TOKEN")
+    chat_id = os.environ.get("CHANNEL_ID")
     
     if not token or not chat_id:
         raise Exception("توکن تلگرام یا CHAT_ID تنظیم نشده است!")

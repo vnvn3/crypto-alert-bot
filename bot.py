@@ -3,15 +3,16 @@ import time
 import os
 import html
 
+# حذف پسوند .P چون بای‌بیت از BTCUSDT برای فیوچرز استفاده می‌کند
 PAIRS = [
-    "BTCUSDT.P", "ETHUSDT.P", "BNBUSDT.P", "SOLUSDT.P", "XRPUSDT.P",
-    "DOGEUSDT.P", "ADAUSDT.P", "TRXUSDT.P", "AVAXUSDT.P", "LINKUSDT.P",
-    "DOTUSDT.P", "MATICUSDT.P", "LTCUSDT.P", "BCHUSDT.P", "UNIUSDT.P",
-    "ATOMUSDT.P", "ETCUSDT.P", "FILUSDT.P", "APTUSDT.P", "ARBUSDT.P",
-    "OPUSDT.P", "SUIUSDT.P", "SEIUSDT.P", "INJUSDT.P", "TIAUSDT.P",
-    "NEARUSDT.P", "AAVEUSDT.P", "MKRUSDT.P", "ALGOUSDT.P", "XLMUSDT.P",
-    "HBARUSDT.P", "VETUSDT.P", "ICPUSDT.P", "FETUSDT.P", "RENDERUSDT.P",
-    "WLDUSDT.P", "PEPEUSDT.P", "SHIBUSDT.P", "1000BONKUSDT.P", "1000FLOKIUSDT.P",
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "TRXUSDT", "AVAXUSDT", "LINKUSDT",
+    "DOTUSDT", "MATICUSDT", "LTCUSDT", "BCHUSDT", "UNIUSDT",
+    "ATOMUSDT", "ETCUSDT", "FILUSDT", "APTUSDT", "ARBUSDT",
+    "OPUSDT", "SUIUSDT", "SEIUSDT", "INJUSDT", "TIAUSDT",
+    "NEARUSDT", "AAVEUSDT", "MKRUSDT", "ALGOUSDT", "XLMUSDT",
+    "HBARUSDT", "VETUSDT", "ICPUSDT", "FETUSDT", "RENDERUSDT",
+    "WLDUSDT", "PEPEUSDT", "SHIBUSDT", "1000BONKUSDT", "1000FLOKIUSDT",
 ]
 
 # --- تابع ارسال به تلگرام ---
@@ -33,167 +34,141 @@ def send_telegram_message(message):
     response.raise_for_status()
     return response.json()
 
-# --- تابع محاسبه دقیق تغییرات ۵ دقیقه و RSI ---
-def get_5m_data_and_rsi(symbol, period=14):
+# --- تابع بررسی الگوی FVG از بای‌بیت ---
+def check_fvg_pattern(symbol):
     try:
-        # دریافت ۱۵ کندل ۵ دقیقه ای
-        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=5m&limit=15"
+        # آدرس API فیوچرز بای‌بیت (نسخه 5)
+        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=3"
         response = requests.get(url, timeout=10)
-        
-        # اگر بایننس آی‌پی را مسدود کرده باشد اینجا ارور می‌دهد
-        if response.status_code == 451 or response.status_code == 403:
-            raise Exception(f"Block/IP Banned - Status: {response.status_code}")
-            
         response.raise_for_status()
-        klines = response.json()
+        data = response.json()
+
+        # بررسی وضعیت پاسخ بای‌بیت
+        if data.get('retCode') != 0:
+            print(f"خطای API بای‌بیت برای {symbol}: {data.get('retMsg')}")
+            return "error", 0, 0, 0
+
+        klines = data['result']['list']
         
-        # محاسبه تغییرات: مقایسه قیمت فعلی با بسته شدن کندل ۵ دقیقه قبلی
-        prev_candle_close = float(klines[-2][4])
-        current_price = float(klines[-1][4])
+        if len(klines) < 3:
+            return None, 0, 0, 0
+
+        # نکته مهم: بای‌بیت کندل‌ها را از جدید به قدیم می‌فرستد، پس باید آرایه را برعکس کنیم
+        klines = klines[::-1]
+
+        # استخراج دیتا (ایندکس‌های بای‌بیت دقیقاً مثل بایننس است: 1=Open, 2=High, 3=Low, 4=Close)
+        c1_h, c1_l = float(klines[0][2]), float(klines[0][3])
+        c1_o, c1_c = float(klines[0][1]), float(klines[0][4])
         
-        change_5m = ((current_price - prev_candle_close) / prev_candle_close) * 100 if prev_candle_close != 0 else 0.0
+        c2_h, c2_l = float(klines[1][2]), float(klines[1][3])
+        c2_o, c2_c = float(klines[1][1]), float(klines[1][4])
         
-        # محاسبه RSI روی تایم ۵ دقیقه
-        closes = [float(k[4]) for k in klines]
-        deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
-        
-        gains = [d if d > 0 else 0 for d in deltas]
-        losses = [-d if d < 0 else 0 for d in deltas]
-        
-        avg_gain = sum(gains) / period
-        avg_loss = sum(losses) / period
-        
-        if avg_loss == 0:
-            rsi = 100.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
-            
-        return change_5m, rsi
+        c3_h, c3_l = float(klines[2][2]), float(klines[2][3])
+        c3_o, c3_c = float(klines[2][1]), float(klines[2][4])
+
+        # ==========================================
+        # بررسی FVG صعودی (Bullish)
+        # ==========================================
+        is_bullish_candles = (c1_c > c1_o) and (c2_c > c2_o) and (c3_c > c3_o)
+        is_higher_lows = (c3_l > c2_l) and (c2_l > c1_l)
+        is_gap_up = c3_l > c1_h
+
+        if is_bullish_candles and is_higher_lows and is_gap_up:
+            gap_top = c3_l
+            gap_bottom = c1_h
+            gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+            return "bullish", gap_top, gap_bottom, gap_size_percent
+
+        # ==========================================
+        # بررسی FVG نزولی (Bearish)
+        # ==========================================
+        is_bearish_candles = (c1_c < c1_o) and (c2_c < c2_o) and (c3_c < c3_o)
+        is_lower_highs = (c3_h < c2_h) and (c2_h < c1_h)
+        is_gap_down = c3_h < c1_l
+
+        if is_bearish_candles and is_lower_highs and is_gap_down:
+            gap_top = c1_l
+            gap_bottom = c3_h
+            gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+            return "bearish", gap_top, gap_bottom, gap_size_percent
+
+        return None, 0, 0, 0
 
     except Exception as e:
-        # فقط پرینت می‌گیرد تا برنامه متوقف نشود
-        print(f"❌ خطا API برای {symbol}: {e}")
-        return None, None
+        print(f"❌ خطا در دریافت دیتای بای‌بیت برای {symbol}: {e}")
+        return "error", 0, 0, 0
 
-# --- تابع اصلی بررسی و ارسال ---
+# --- تابع اصلی ---
 def check_and_send_alerts():
-    print(f"شروع بررسی {len(PAIRS)} ارز در تایم فریم ۵ دقیقه...")
+    print(f"شروع اسکن الگوی FVG از Bybit روی {len(PAIRS)} ارز...")
     alerts_sent = 0
-    api_errors = 0  # شمارنده خطاهای بایننس
+    api_errors = 0
     
     for pair in PAIRS:
-        symbol = pair.replace(".P", "")
-        symbol_clean = pair.replace(".P", "").replace("USDT", "")
+        # دیگر نیازی به حذف .P نیست چون از اول نبود
+        symbol = pair
+        symbol_clean = pair.replace("USDT", "")
         safe_symbol = html.escape(symbol_clean)
         
-        change_5m, rsi = get_5m_data_and_rsi(symbol)
+        pattern_type, gap_top, gap_bottom, gap_size = check_fvg_pattern(symbol)
         
-        # اگر دیتا نگیریم، بشماریم و بگذریم
-        if change_5m is None or rsi is None:
+        if pattern_type == "error":
             api_errors += 1
-            time.sleep(0.5) # اگر ارور بود صبر بیشتری کن تا ایمیل بند نشیم
+            time.sleep(0.5)
             continue
             
-        time.sleep(0.2) 
-        message_sent_for_pair = False
+        time.sleep(0.2)
 
-        # برای دیباگ در گیت‌هاب (وقتی لاگ‌ها را چک می‌کنید قیمت بیت‌کوین را می‌بینید)
-        if symbol == "BTCUSDT":
-            print(f"🔍 BTC Debug -> Change: {change_5m:.2f}% | RSI: {rsi:.1f}")
-
-        # ==========================================
-        # شرط اول: پامپ و دامپ در ۵ دقیقه
-        # (توجه: در تایم 5 دقیقه اعداد بزرگ مثل 2 درصد خیلی نادرند، اینجا حساس تر کردم)
-        # ==========================================
-        if change_5m >= 1.5:
-            emoji, action_word = "🚀🚀🚀", "پامپ شدید 5m"
-        elif change_5m >= 0.8:
-            emoji, action_word = "🚀🚀", "پامپ 5m"
-        elif change_5m >= 0.4:
-            emoji, action_word = "🚀", "رشد کوتاه 5m"
-        elif change_5m <= -1.5:
-            emoji, action_word = "💀💀💀", "دامپ شدید 5m"
-        elif change_5m <= -0.8:
-            emoji, action_word = "💀💀", "دامپ 5m"
-        elif change_5m <= -0.4:
-            emoji, action_word = "📉", "ریزش کوتاه 5m"
-        else:
-            emoji, action_word = None, None
-
-        if action_word:
-            if rsi >= 70:
-                rsi_text = f"🔴 اشباع خرید ({rsi:.1f})"
-            elif rsi <= 30:
-                rsi_text = f"🟢 اشباع فروش ({rsi:.1f})"
-            else:
-                rsi_text = f"⚪ خنثی ({rsi:.1f})"
-
+        if pattern_type == "bullish":
             message = (
-                f"{emoji} <b>فیوچرز {safe_symbol}</b>\n"
-                f"⚡ {action_word}: <code>{change_5m:.2f}%</code>\n"
-                f"📊 RSI: {rsi_text}"
+                f"🟢 <b>شناسایی FVG صعودی (Bullish)</b>\n"
+                f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
+                f"🏢 صرافی: Bybit\n"
+                f"⏱ تایم فریم: 5 دقیقه\n"
+                f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
+                f"🎯 <b>محدوده گپ برای رسم روی چارت:</b>\n"
+                f"بالا (Top): <code>{gap_top}</code>\n"
+                f"پایین (Bottom): <code>{gap_bottom}</code>"
             )
-            
             try:
                 send_telegram_message(message)
                 alerts_sent += 1
-                print(f"✅ پامپ/دامپ {pair} ارسال شد.")
-                message_sent_for_pair = True
+                print(f"✅ FVG صعودی پیدا شد: {pair}")
                 time.sleep(1)
             except Exception as e:
-                print(f"❌ خطای تلگرام در ارسال پامپ {pair}: {e}")
+                print(f"❌ خطای تلگرام: {e}")
 
-        # ==========================================
-        # شرط دوم: رسیدن RSI به اشباع (حتی بدون پامپ شدید)
-        # ==========================================
-        if not message_sent_for_pair:
-            if rsi >= 75: # کمی حساس‌تر کردم
-                rsi_message = (
-                    f"🔴 <b>اشباع خرید RSI در 5m</b>\n"
-                    f"🪙 فیوچرز {safe_symbol}\n"
-                    f"📊 مقدار: <code>{rsi:.1f}</code>\n"
-                    f"📉 تغییرات: <code>{change_5m:.2f}%</code>"
-                )
-                try:
-                    send_telegram_message(rsi_message)
-                    alerts_sent += 1
-                    print(f"✅ سیگنال اشباع خرید RSI برای {pair} ارسال شد.")
-                    time.sleep(1)
-                except Exception as e:
-                    print(f"❌ خطای تلگرام در ارسال RSI {pair}: {e}")
-                    
-            elif rsi <= 25: # کمی حساس‌تر کردم
-                rsi_message = (
-                    f"🟢 <b>اشباع فروش RSI در 5m</b>\n"
-                    f"🪙 فیوچرز {safe_symbol}\n"
-                    f"📊 مقدار: <code>{rsi:.1f}</code>\n"
-                    f"📈 تغییرات: <code>{change_5m:.2f}%</code>"
-                )
-                try:
-                    send_telegram_message(rsi_message)
-                    alerts_sent += 1
-                    print(f"✅ سیگنال اشباع فروش RSI برای {pair} ارسال شد.")
-                    time.sleep(1)
-                except Exception as e:
-                    print(f"❌ خطای تلگرام در ارسال RSI {pair}: {e}")
+        elif pattern_type == "bearish":
+            message = (
+                f"🔴 <b>شناسایی FVG نزولی (Bearish)</b>\n"
+                f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
+                f"🏢 صرافی: Bybit\n"
+                f"⏱ تایم فریم: 5 دقیقه\n"
+                f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
+                f"🎯 <b>محدوده گپ برای رسم روی چارت:</b>\n"
+                f"بالا (Top): <code>{gap_top}</code>\n"
+                f"پایین (Bottom): <code>{gap_bottom}</code>"
+            )
+            try:
+                send_telegram_message(message)
+                alerts_sent += 1
+                print(f"✅ FVG نزولی پیدا شد: {pair}")
+                time.sleep(1)
+            except Exception as e:
+                print(f"❌ خطای تلگرام: {e}")
 
-    # ================= گزارش نهایی =================
     if api_errors == len(PAIRS):
-        print("🚨 خطای قطعی: بایننس تمام درخواست‌ها را رد کرد (احتمالا IP گیت‌هاب بلاک شده است).")
+        print("🚨 هشدار: بای‌بیت هم تمام درخواست‌ها را رد کرد.")
     
     if alerts_sent == 0:
-        print("پایان بررسی: سیگنال خاصی یافت نشد.")
+        print("پایان اسکن: هیچ FVG استانداردی در ۵ دقیقه اخیر شکل نگرفته است.")
     else:
-        print(f"پایان بررسی: مجموعاً {alerts_sent} آلارم ارسال شد.")
+        print(f"پایان اسکن: مجموعاً {alerts_sent} الگوی FVG ارسال شد.")
 
 if __name__ == "__main__":
     check_and_send_alerts()
     
-    # پیام ضربان قلب هوشمند
     try:
-        # اگر خطای API زیاد بود به کاربر اخبار بده
-        # (برای خواندن متغیر از تابع اصلی، آن را گلوبال می‌کردیم اما برای سادگی پیام ثابت می‌گذاریم)
-        send_telegram_message("🔄 اسکن ۵ دقیقه‌ای انجام شد.\n\n⚠️ <i>نکته: اگر می‌دانید بازار پامپ دارد ولی سیگنال نمی‌آید، لطفاً لاگ‌های (Logs) گیت‌هاب را چک کنید. اگر نوشته بود (Block/IP Banned)، یعنی بایننس آی‌پی گیت‌هاب را مسدود کرده است.</i>")
+        send_telegram_message("🔄 اسکن FVG (تایم ۵ دقیقه - دیتا بای‌بیت) انجام شد. فعلاً گپ ارزش منصفانه‌ای تشکیل نشده است.")
     except Exception as e:
-        print(f"خطا در ارسال پیام ضربان قلب! مشکل از توکن یا آیدی کانال است: {e}")
+        print(f"خطا در ارسال پیام ضربان قلب: {e}")

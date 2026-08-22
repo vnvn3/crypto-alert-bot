@@ -2,19 +2,24 @@ import requests
 import time
 import os
 import html
+import concurrent.futures
 
 PAIRS = [
     # --- ارزهای اصلی ---
-    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
-    "LTCUSDT", "BCHUSDT", "UNIUSDT", "ATOMUSDT", "NEARUSDT",
-    "AAVEUSDT", "FILUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
+    "LTCUSDT", "BCHUSDT", "UNIUSDT", "ATOMUSDT", "NEARUSDT", "AAVEUSDT", "FILUSDT", "APTUSDT", "ARBUSDT", "OPUSDT",
+    "TRXUSDT", "MATICUSDT", "ICPUSDT", "SHIBUSDT", "RENDERUSDT", "MKRUSDT", "SUIUSDT", "SEIUSDT", "INJUSDT", "TIAUSDT",
+    "FETUSDT", "PEPEUSDT", "WLDUSDT", "1000BONKUSDT", "1000FLOKIUSDT", "WIFUSDT", "JUPUSDT", "NEIROUSDT", "ENAUSDT", "PEOPLEUSDT",
     
-    # --- آلتکوین‌های ترند فیوچرز ---
-    "SUIUSDT", "SEIUSDT", "INJUSDT", "TIAUSDT", "FETUSDT",
-    "PEPEUSDT", "WLDUSDT", "1000BONKUSDT", "1000FLOKIUSDT", "TRXUSDT",
-    "MATICUSDT", "ICPUSDT", "SHIBUSDT", "RENDERUSDT", "MKRUSDT",
-    "WIFUSDT", "JUPUSDT", "NEIROUSDT", "ENAUSDT", "PEOPLEUSDT"
+    # --- آلتکوین‌های پرنوسان و ترند ---
+    "FTMUSDT", "SANDUSDT", "MANAUSDT", "AXSUSDT", "GALAUSDT", "CHZUSDT", "XLMUSDT", "ALGOUSDT", "EOSUSDT", "NEOUSDT",
+    "DASHUSDT", "ZECUSDT", "XECUSDT", "ETCUSDT", "GRTUSDT", "SUSHIUSDT", "CRVUSDT", "SNXUSDT", "COMPUSDT", "YFIUSDT",
+    "1INCHUSDT", "BALUSDT", "LDOUSDT", "DYDXUSDT", "GMXUSDT", "RUNEUSDT", "AVAILUSDT", "ALTUSDT", "XAIUSDT", "BLURUSDT",
+    "APEUSDT", "GMTUSDT", "JTOUSDT", "PYTHUSDT", "DYMUSDT", "PIXELUSDT", "MANTAUSDT", "STRKUSDT", "MNTUSDT", "ORDIUSDT",
+    "TIAUSDT", "1000SHIBUSDT", "1000PEPEUSDT", "1000XECUSDT", "1000LUNCUSDT", "LUNAUSDT", "ASTRUSDT", "FLOWUSDT", "XTZUSDT", "KAVAUSDT",
+    "ROSEUSDT", "RNDRUSDT", "OCEANUSDT", "AGIXUSDT", "FILUSDT", "ARUSDT", "MINAUSDT", "IMXUSDT", "CFXUSDT", "STXUSDT",
+    "KASUSDT", "TAOUSDT", "MEMEUSDT", "TURBOUSDT", "BOMEUSDT", "WUSDT", "ZKUSDT", "ETHFIUSDT", "EIGENUSDT", "TONUSDT",
+    "NOTUSDT", "BANANAUSDT", "1000SATSUSDT", "OMNIUSDT", "REZUSDT", "LISTAUSDT", "ZROUSDT", "1000RATSUSDT", "1000CATSUSDT", "SCRUSDT"
 ]
 
 # --- تابع ارسال به تلگرام ---
@@ -36,12 +41,11 @@ def send_telegram_message(message):
     response.raise_for_status()
     return response.json()
 
-# --- تابع بررسی الگوی FVG ---
+# --- تابع بررسی الگوی FVG برای یک ارز ---
 def check_fvg_pattern(symbol):
     try:
-        # فقط 5 کندل آخر را می‌گیریم (برای اطمینان از بسته شدن کندل‌ها)
-        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=5"
-        response = requests.get(url, timeout=10)
+        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=4"
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
         data = response.json()
 
@@ -52,115 +56,92 @@ def check_fvg_pattern(symbol):
         if len(klines) < 4:
             return None, 0, 0, 0
 
-        # بای‌بیت کندل‌ها را از جدید به قدیم می‌فرستد. برعکس می‌کنیم.
-        klines.reverse()
+        # بای‌بیت کندل‌ها را از جدید به قدیم می‌فرستد.
+        # ایندکس 0: کندل در حال تشکیل (حذف می‌شود)
+        # ایندکس 1: کندل بسته شده سوم (c3)
+        # ایندکس 2: کندل بسته شده دوم (c2)
+        # ایندکس 3: کندل بسته شده اول (c1)
+        
+        c1_h, c1_l = float(klines[3][2]), float(klines[3][3])
+        c3_h, c3_l = float(klines[1][2]), float(klines[1][3])
 
-        # کندل آخر (ایندکس منهای 1) در حال تشکیل است، پس حذفش می‌کنیم
-        closed_klines = klines[:-1]
-
-        # فقط 3 کندل اخیر بسته شده را می‌خواهیم (ایندکس 0, 1, 2)
-        c1 = closed_klines[-3]
-        c2 = closed_klines[-2]
-        c3 = closed_klines[-1]
-
-        c1_h, c1_l = float(c1[2]), float(c1[3])
-        c2_h, c2_l = float(c2[2]), float(c2[3])
-        c3_h, c3_l = float(c3[2]), float(c3[3])
-
-        # حداقل اندازه گپ برای فیلتر کردن نویزها (0.01%)
         MIN_GAP_PERCENT = 0.01
 
-        # ==========================================
-        # بررسی FVG صعودی (Bullish)
-        # شرط: Low کندل سوم بالاتر از High کندل اول باشد (اصلی‌ترین شرط FVG)
-        # ==========================================
+        # بررسی FVG صعودی
         if c3_l > c1_h:
             gap_top = c3_l
             gap_bottom = c1_h
             gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
-            
             if gap_size_percent >= MIN_GAP_PERCENT:
                 return "bullish", gap_top, gap_bottom, gap_size_percent
 
-        # ==========================================
-        # بررسی FVG نزولی (Bearish)
-        # شرط: High کندل سوم پایین‌تر از Low کندل اول باشد
-        # ==========================================
+        # بررسی FVG نزولی
         if c3_h < c1_l:
             gap_top = c1_l
             gap_bottom = c3_h
             gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
-            
             if gap_size_percent >= MIN_GAP_PERCENT:
                 return "bearish", gap_top, gap_bottom, gap_size_percent
 
         return None, 0, 0, 0
 
     except Exception as e:
-        print(f"❌ خطا در دریافت دیتای بای‌بیت برای {symbol}: {e}")
         return "error", 0, 0, 0
+
+# --- تابعی که برای هر ارز در Thread جدا اجرا می‌شود ---
+def process_pair(pair):
+    symbol_clean = pair.replace("USDT", "")
+    safe_symbol = html.escape(symbol_clean)
+    
+    pattern_type, gap_top, gap_bottom, gap_size = check_fvg_pattern(pair)
+    
+    alert_message = None
+    
+    if pattern_type == "bullish":
+        alert_message = (
+            f"🟢 <b>شناسایی FVG صعودی (Bullish)</b>\n"
+            f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
+            f"🏢 صرافی: Bybit\n"
+            f"⏱ تایم فریم: 5 دقیقه\n"
+            f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
+            f"🎯 <b>محدوده گپ:</b>\n"
+            f"بالا: <code>{gap_top}</code>\n"
+            f"پایین: <code>{gap_bottom}</code>"
+        )
+    elif pattern_type == "bearish":
+        alert_message = (
+            f"🔴 <b>شناسایی FVG نزولی (Bearish)</b>\n"
+            f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
+            f"🏢 صرافی: Bybit\n"
+            f"⏱ تایم فریم: 5 دقیقه\n"
+            f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
+            f"🎯 <b>محدوده گپ:</b>\n"
+            f"بالا: <code>{gap_top}</code>\n"
+            f"پایین: <code>{gap_bottom}</code>"
+        )
+        
+    return alert_message
 
 # --- تابع اصلی ---
 def check_and_send_alerts():
-    print(f"شروع اسکن الگوی FVG روی {len(PAIRS)} ارز...")
+    print(f"شروع اسکن الگوی FVG روی {len(PAIRS)} ارز به صورت همزمان...")
     alerts_sent = 0
-    api_errors = 0
     
-    for pair in PAIRS:
-        symbol = pair
-        symbol_clean = pair.replace("USDT", "")
-        safe_symbol = html.escape(symbol_clean)
+    # استفاده از Threading برای بررسی همزمان تمام ارزها (سرعت بسیار بالا)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        results = list(executor.map(process_pair, PAIRS))
         
-        pattern_type, gap_top, gap_bottom, gap_size = check_fvg_pattern(symbol)
-        
-        if pattern_type == "error":
-            api_errors += 1
-            time.sleep(0.3)
-            continue
-            
-        time.sleep(0.15) # جلوگیری از بن شدن در بای‌بیت
-
-        if pattern_type == "bullish":
-            message = (
-                f"🟢 <b>شناسایی FVG صعودی (Bullish)</b>\n"
-                f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
-                f"🏢 صرافی: Bybit\n"
-                f"⏱ تایم فریم: 5 دقیقه\n"
-                f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
-                f"🎯 <b>محدوده گپ:</b>\n"
-                f"بالا: <code>{gap_top}</code>\n"
-                f"پایین: <code>{gap_bottom}</code>"
-            )
+    # ارسال پیام‌های پیدا شده
+    for msg in results:
+        if msg:
             try:
-                send_telegram_message(message)
+                send_telegram_message(msg)
                 alerts_sent += 1
-                print(f"✅ FVG صعودی پیدا شد: {pair}")
-                time.sleep(1)
+                print("✅ سیگنال ارسال شد.")
+                time.sleep(0.5)  # مکث کوتاه برای جلوگیری از محدودیت تلگرام
             except Exception as e:
                 print(f"❌ خطای تلگرام: {e}")
 
-        elif pattern_type == "bearish":
-            message = (
-                f"🔴 <b>شناسایی FVG نزولی (Bearish)</b>\n"
-                f"🪙 فیوچرز: <b>{safe_symbol}</b>\n"
-                f"🏢 صرافی: Bybit\n"
-                f"⏱ تایم فریم: 5 دقیقه\n"
-                f"📐 اندازه گپ: <code>{gap_size:.3f}%</code>\n\n"
-                f"🎯 <b>محدوده گپ:</b>\n"
-                f"بالا: <code>{gap_top}</code>\n"
-                f"پایین: <code>{gap_bottom}</code>"
-            )
-            try:
-                send_telegram_message(message)
-                alerts_sent += 1
-                print(f"✅ FVG نزولی پیدا شد: {pair}")
-                time.sleep(1)
-            except Exception as e:
-                print(f"❌ خطای تلگرام: {e}")
-
-    if api_errors == len(PAIRS):
-        print("🚨 هشدار: بای‌بیت درخواست‌ها را رد کرد.")
-    
     if alerts_sent == 0:
         print("پایان اسکن: هیچ الگوی FVG استانداردی در کندل اخیر یافت نشد.")
     else:

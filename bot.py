@@ -39,8 +39,8 @@ def send_telegram_message(message):
 # --- تابع بررسی الگوی FVG ---
 def check_fvg_pattern(symbol):
     try:
-        # تغییر مهم: به جای 4 کندل، 20 کندل آخر را می‌گیریم (تا حرکات طولانی‌تر را هم پوشش دهیم)
-        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=20"
+        # فقط 5 کندل آخر را می‌گیریم (برای اطمینان از بسته شدن کندل‌ها)
+        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=5"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -52,46 +52,48 @@ def check_fvg_pattern(symbol):
         if len(klines) < 4:
             return None, 0, 0, 0
 
-        # بای‌بیت کندل‌ها را از جدید به قدیم می‌فرستد. 
-        # ما آرایه را برعکس می‌کنیم تا ایندکس 0 قدیمی‌ترین کندل و ایندکس آخر جدیدترین کندل باشد.
+        # بای‌بیت کندل‌ها را از جدید به قدیم می‌فرستد. برعکس می‌کنیم.
         klines.reverse()
 
-        # کندل آخر (ایندکس منهای 1) در حال تشکیل است، پس آن را حذف می‌کنیم تا فقط روی کندل‌های بسته شده کار کنیم
+        # کندل آخر (ایندکس منهای 1) در حال تشکیل است، پس حذفش می‌کنیم
         closed_klines = klines[:-1]
 
-        # بررسی تمام ترکیب‌های ۳ تایی متوالی در این ۱۹ کندل بسته شده
-        for i in range(len(closed_klines) - 2):
-            c1_o, c1_h, c1_l, c1_c = float(closed_klines[i][1]), float(closed_klines[i][2]), float(closed_klines[i][3]), float(closed_klines[i][4])
-            c2_o, c2_h, c2_l, c2_c = float(closed_klines[i+1][1]), float(closed_klines[i+1][2]), float(closed_klines[i+1][3]), float(closed_klines[i+1][4])
-            c3_o, c3_h, c3_l, c3_c = float(closed_klines[i+2][1]), float(closed_klines[i+2][2]), float(closed_klines[i+2][3]), float(closed_klines[i+2][4])
+        # فقط 3 کندل اخیر بسته شده را می‌خواهیم (ایندکس 0, 1, 2)
+        c1 = closed_klines[-3]
+        c2 = closed_klines[-2]
+        c3 = closed_klines[-1]
 
-            # ==========================================
-            # بررسی FVG صعودی (Bullish)
-            # ==========================================
-            is_bullish_candles = (c1_c > c1_o) and (c2_c > c2_o) and (c3_c > c3_o)
-            is_higher_lows = (c3_l > c2_l) and (c2_l > c1_l)
-            is_gap_up = c3_l > c1_h
+        c1_h, c1_l = float(c1[2]), float(c1[3])
+        c2_h, c2_l = float(c2[2]), float(c2[3])
+        c3_h, c3_l = float(c3[2]), float(c3[3])
 
-            if is_bullish_candles and is_higher_lows and is_gap_up:
-                gap_top = c3_l
-                gap_bottom = c1_h
-                gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+        # حداقل اندازه گپ برای فیلتر کردن نویزها (0.01%)
+        MIN_GAP_PERCENT = 0.01
+
+        # ==========================================
+        # بررسی FVG صعودی (Bullish)
+        # شرط: Low کندل سوم بالاتر از High کندل اول باشد (اصلی‌ترین شرط FVG)
+        # ==========================================
+        if c3_l > c1_h:
+            gap_top = c3_l
+            gap_bottom = c1_h
+            gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+            
+            if gap_size_percent >= MIN_GAP_PERCENT:
                 return "bullish", gap_top, gap_bottom, gap_size_percent
 
-            # ==========================================
-            # بررسی FVG نزولی (Bearish)
-            # ==========================================
-            is_bearish_candles = (c1_c < c1_o) and (c2_c < c2_o) and (c3_c < c3_o)
-            is_lower_highs = (c3_h < c2_h) and (c2_h < c1_h)
-            is_gap_down = c3_h < c1_l
-
-            if is_bearish_candles and is_lower_highs and is_gap_down:
-                gap_top = c1_l
-                gap_bottom = c3_h
-                gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+        # ==========================================
+        # بررسی FVG نزولی (Bearish)
+        # شرط: High کندل سوم پایین‌تر از Low کندل اول باشد
+        # ==========================================
+        if c3_h < c1_l:
+            gap_top = c1_l
+            gap_bottom = c3_h
+            gap_size_percent = ((gap_top - gap_bottom) / gap_bottom) * 100
+            
+            if gap_size_percent >= MIN_GAP_PERCENT:
                 return "bearish", gap_top, gap_bottom, gap_size_percent
 
-        # اگر در هیچ جای این ۲۰ کندل الگو پیدا نشد
         return None, 0, 0, 0
 
     except Exception as e:
@@ -116,7 +118,7 @@ def check_and_send_alerts():
             time.sleep(0.3)
             continue
             
-        time.sleep(0.15)
+        time.sleep(0.15) # جلوگیری از بن شدن در بای‌بیت
 
         if pattern_type == "bullish":
             message = (
@@ -159,13 +161,8 @@ def check_and_send_alerts():
     if api_errors == len(PAIRS):
         print("🚨 هشدار: بای‌بیت درخواست‌ها را رد کرد.")
     
-    # پیام پایانی را داینامیک کردم تا اگر سیگنال پیدا شد، پیام اشتباه ارسال نشود
     if alerts_sent == 0:
-        print("پایان اسکن: هیچ FVG استانداردی یافت نشد.")
-        try:
-            send_telegram_message("🔄 اسکن FVG (تایم ۵ دقیقه - Bybit) انجام شد.\nهیچ الگوی دقیق ۳ کندلی FVG در ۱۰۰ دقیقه گذشته یافت نشد.")
-        except Exception as e:
-            print(f"خطا در ارسال پیام ضربان قلب: {e}")
+        print("پایان اسکن: هیچ الگوی FVG استانداردی در کندل اخیر یافت نشد.")
     else:
         print(f"پایان اسکن: مجموعاً {alerts_sent} الگوی FVG ارسال شد.")
 

@@ -2,11 +2,18 @@ name: Crypto Futures Checker
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'  # تغییر به 5 دقیقه برای هماهنگی با تایم فریم
+  workflow_dispatch:       # این خط اضافه شد تا بتوانید دستی هم ربات را تست کنید
+
+# جلوگیری از تداخل اجراها (اگر اکشن قبلی طول کشید، این یکی صبر کند یا اون رو لغو کند)
+concurrency:
+  group: fvg-scan-group
+  cancel-in-progress: true
 
 jobs:
   check-prices:
     runs-on: ubuntu-latest
+    timeout-minutes: 3   # اگر کد بیشتر از 3 دقیقه طول کشید، گیت‌هاب آن را متوقف کند تا رایگان بماند
 
     steps:
     - name: Checkout code

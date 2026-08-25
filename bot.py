@@ -19,6 +19,12 @@ PAIRS = [
     "NOTUSDT", "BANANAUSDT", "1000SATSUSDT", "OMNIUSDT", "REZUSDT", "LISTAUSDT", "ZROUSDT", "1000RATSUSDT", "1000CATSUSDT", "SCRUSDT"
 ]
 
+# --- افزودن هدر برای دور زدن مسدودیت بای‌بیت ---
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json"
+}
+
 def send_telegram_message(message):
     token = os.environ.get("BOT_TOKEN")
     chat_id = os.environ.get("CHANNEL_ID")
@@ -46,8 +52,16 @@ def send_telegram_message(message):
 def check_fvg_pattern(symbol):
     try:
         url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=5&limit=11"
-        response = requests.get(url, timeout=5)
-        data = response.json()
+        # ارسال هدر در درخواست
+        response = requests.get(url, headers=HEADERS, timeout=5)
+        response.raise_for_status()
+        
+        # بررسی اینکه آیا واقعا JSON است یا خیر
+        try:
+            data = response.json()
+        except ValueError:
+            print(f"⚠️ بای‌بیت دیتای غیر JSON برای {symbol} فرستاد (احتمالاً مسدود شده).")
+            return "error", 0, 0, 0, 0
 
         if data.get('retCode') != 0:
             print(f"⚠️ خطای API بای‌بیت برای {symbol}: {data.get('retMsg')}")

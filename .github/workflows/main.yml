@@ -2,9 +2,10 @@ name: Crypto Futures Checker
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # تغییر به 5 دقیقه برای هماهنگی با تایم فریم
-  workflow_dispatch:       # این خط اضافه شد تا بتوانید دستی هم ربات را تست کنید
-
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run-bot]
 # جلوگیری از تداخل اجراها (اگر اکشن قبلی طول کشید، این یکی صبر کند یا اون رو لغو کند)
 concurrency:
   group: fvg-scan-group

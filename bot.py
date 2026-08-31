@@ -87,51 +87,52 @@ def calculate_rsi(closes, period=14):
     return round(rsi, 2)
 
 
+# نگاشت تایم‌فریم به فرمت OKX
+BAR_MAP = {
+    "1": "1m", "3": "3m", "5": "5m", "15": "15m",
+    "30": "30m", "60": "1H", "240": "4H", "D": "1Dutc"
+}
+
+
+def symbol_to_okx_instid(symbol):
+    """تبدیل نماد Bybit مثل BTCUSDT به فرمت OKX مثل BTC-USDT-SWAP"""
+    base = symbol[:-4]  # حذف USDT از انتها
+    return f"{base}-USDT-SWAP"
+
+
 def check_rsi(symbol):
-    """برای یک نماد، RSI رو از Bybit می‌گیره و برمی‌گردونه"""
-    # دو دامنه امتحان می‌کنیم چون گاهی یکی از این‌ها توسط Bybit برای IP سرورهای ابری مسدود می‌شه
-    domains = ["https://api.bybit.com", "https://api.bytick.com"]
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    }
+    """برای یک نماد، RSI رو از OKX می‌گیره و برمی‌گردونه (Bybit برای IP آمریکا/GitHub Actions مسدوده)"""
+    try:
+        inst_id = symbol_to_okx_instid(symbol)
+        bar = BAR_MAP.get(INTERVAL, "5m")
+        url = f"https://www.okx.com/api/v5/market/candles?instId={inst_id}&bar={bar}&limit={KLINE_LIMIT}"
+        headers = {"User-Agent": "Mozilla/5.0"}
 
-    last_error = None
+        response = requests.get(url, headers=headers, timeout=8)
+        if response.status_code != 200:
+            print(f"⚠️ {symbol}: HTTP {response.status_code} -> {response.text[:120]}")
+            return symbol, None
 
-    for domain in domains:
-        try:
-            url = f"{domain}/v5/market/kline?category=linear&symbol={symbol}&interval={INTERVAL}&limit={KLINE_LIMIT}"
-            response = requests.get(url, headers=headers, timeout=8)
+        data = response.json()
+        if data.get('code') != '0':
+            print(f"⚠️ {symbol}: خطای OKX -> {data.get('msg')}")
+            return symbol, None
 
-            if response.status_code != 200:
-                last_error = f"HTTP {response.status_code} از {domain} -> {response.text[:150]}"
-                continue
+        candles = data.get('data', [])
+        if len(candles) < RSI_PERIOD + 2:
+            return symbol, None
 
-            try:
-                data = response.json()
-            except ValueError:
-                last_error = f"JSON نامعتبر از {domain} -> {response.text[:150]}"
-                continue
+        # اولین آیتم جدیدترینه و ممکنه هنوز کامل نشده باشه، کنارش می‌ذاریم
+        closed = candles[1:]
+        closed.reverse()  # قدیم -> جدید
+        closes = [float(c[4]) for c in closed]  # ایندکس 4 = close
 
-            if data.get('retCode') != 0:
-                last_error = f"خطای API از {domain} -> {data.get('retMsg')}"
-                continue
+        rsi = calculate_rsi(closes, RSI_PERIOD)
+        return symbol, rsi
 
-            klines = data['result']['list']
-            if len(klines) < RSI_PERIOD + 1:
-                return symbol, None
-
-            klines.reverse()
-            closes = [float(k[4]) for k in klines]
-
-            rsi = calculate_rsi(closes, RSI_PERIOD)
-            return symbol, rsi
-
-        except Exception as e:
-            last_error = f"استثنا از {domain} -> {e}"
-            continue
-
-    print(f"⚠️ {symbol}: هر دو دامنه شکست خوردن. آخرین خطا: {last_error}")
-    return symbol, None
+    except Exception as e:
+        print(f"❌ {symbol}: خطا -> {e}")
+        return symbol, None
 
 
 def check_rsi_forex(yahoo_symbol, display_name):

@@ -21,7 +21,7 @@ PAIRS = [
 # --- تنظیمات قابل تغییر ---
 INTERVAL = "5"          # تایم‌فریم: 1, 3, 5, 15, 30, 60, 240, D
 RSI_PERIOD = 14
-OVERBOUGHT = 69
+OVERBOUGHT = 59
 OVERSOLD = 38
 KLINE_LIMIT = RSI_PERIOD + 50  # داده کافی برای محاسبه دقیق‌تر RSI
 

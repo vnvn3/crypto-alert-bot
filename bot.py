@@ -33,7 +33,7 @@ FOREX_PAIRS = {
 
 # --- تنظیمات قابل تغییر ---
 INTERVAL = "5"          # تایم‌فریم کریپتو (Bybit): 1, 3, 5, 15, 30, 60, 240, D
-YAHOO_INTERVAL = "15m"   # تایم‌فریم فارکس (Yahoo): 5m, 15m, 30m, 60m
+YAHOO_INTERVAL = "5m"   # تایم‌فریم فارکس (Yahoo): 5m, 15m, 30m, 60m
 YAHOO_RANGE = "5d"       # بازه داده تاریخی فارکس
 RSI_PERIOD = 14
 OVERBOUGHT = 70

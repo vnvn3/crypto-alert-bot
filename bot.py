@@ -167,13 +167,13 @@ def main():
     message_lines = [f"📊 <b>گزارش RSI (تایم‌فریم {INTERVAL} دقیقه)</b>\n"]
 
     if overbought_list:
-        message_lines.append("🔴 <b>اشباع خرید (Overbought):</b>")
+        message_lines.append("🟢 <b>اشباع خرید (Overbought):</b>")
         for symbol, rsi in overbought_list:
             message_lines.append(f"• {html.escape(symbol)} — RSI: {rsi}")
         message_lines.append("")
 
     if oversold_list:
-        message_lines.append("🟢 <b>اشباع فروش (Oversold):</b>")
+        message_lines.append("🔴 <b>اشباع فروش (Oversold):</b>")
         for symbol, rsi in oversold_list:
             message_lines.append(f"• {html.escape(symbol)} — RSI: {rsi}")
         message_lines.append("")

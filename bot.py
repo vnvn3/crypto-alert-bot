@@ -2,6 +2,7 @@ import requests
 import os
 import html
 import concurrent.futures
+from datetime import datetime, timezone, timedelta
 
 PAIRS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "LINKUSDT", "DOTUSDT",
@@ -15,30 +16,27 @@ PAIRS = [
     "1000SHIBUSDT", "1000PEPEUSDT", "1000XECUSDT", "1000LUNCUSDT", "LUNAUSDT", "ASTRUSDT", "FLOWUSDT", "XTZUSDT", "KAVAUSDT",
     "ROSEUSDT", "RNDRUSDT", "OCEANUSDT", "AGIXUSDT", "ARUSDT", "MINAUSDT", "IMXUSDT", "CFXUSDT", "STXUSDT",
     "KASUSDT", "TAOUSDT", "MEMEUSDT", "TURBOUSDT", "BOMEUSDT", "WUSDT", "ZKUSDT", "ETHFIUSDT", "EIGENUSDT", "TONUSDT",
-    "NOTUSDT", "BANANAUSDT", "1000SATSUSDT", "OMNIUSDT", "REZUSDT", "LISTAUSDT", "ZROUSDT", "1000RATSUSDT", "1000CATSUSDT", "SCRUSDT"
+    "NOTUSDT", "BANANAUSDT", "1000SATSUSDT", "OMNIUSDT", "REZUSDT", "LISTAUSDT", "ZROUSDT", "1000RATSUSDT", "1000CATSUSDT", "SCRUSDT",
+    "XAUUSDT", "XAGUSDT"
 ]
 
-# جفت‌ارزهای فارکس و طلا (از Yahoo Finance گرفته می‌شن، نه Bybit)
-# کلید = نماد Yahoo Finance | مقدار = نامی که در پیام تلگرام نشون داده می‌شه
-FOREX_PAIRS = {
-    "EURUSD=X": "EURUSD",
-    "GBPUSD=X": "GBPUSD",
-    "XAUUSD=X": "XAUUSD",
-    "USDJPY=X": "USDJPY",
-    "AUDUSD=X": "AUDUSD",
-    "USDCHF=X": "USDCHF",
-    "USDCAD=X": "USDCAD",
-    "NZDUSD=X": "NZDUSD",
-}
-
 # --- تنظیمات قابل تغییر ---
-INTERVAL = "5"          # تایم‌فریم کریپتو (Bybit): 1, 3, 5, 15, 30, 60, 240, D
-YAHOO_INTERVAL = "5m"   # تایم‌فریم فارکس (Yahoo): 5m, 15m, 30m, 60m
-YAHOO_RANGE = "5d"       # بازه داده تاریخی فارکس
+INTERVAL = "15"          # تایم‌فریم: 1, 3, 5, 15, 30, 60, 240, D
 RSI_PERIOD = 14
 OVERBOUGHT = 70
 OVERSOLD = 30
 KLINE_LIMIT = RSI_PERIOD + 50  # داده کافی برای محاسبه دقیق‌تر RSI
+
+# بازه ساعتی مجاز برای ارسال سیگنال (به وقت ایران)
+ACTIVE_START_HOUR = 9    # 9 صبح
+ACTIVE_END_HOUR = 23     # 23 شب
+IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
+
+
+def is_within_active_hours():
+    """چک می‌کنه که الان بین ساعت ۹ صبح تا ۲۳ شب به وقت ایران هست یا نه"""
+    now_iran = datetime.now(IRAN_TZ)
+    return ACTIVE_START_HOUR <= now_iran.hour < ACTIVE_END_HOUR
 
 
 def send_telegram_message(message):
@@ -135,38 +133,15 @@ def check_rsi(symbol):
         return symbol, None
 
 
-def check_rsi_forex(yahoo_symbol, display_name):
-    """برای یک جفت‌ارز فارکس/طلا، RSI رو از Yahoo Finance می‌گیره و برمی‌گردونه"""
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval={YAHOO_INTERVAL}&range={YAHOO_RANGE}"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, timeout=8)
-        data = response.json()
-
-        result = data.get('chart', {}).get('result')
-        if not result:
-            print(f"⚠️ {display_name}: داده‌ای برنگشت")
-            return display_name, None
-
-        quote = result[0]['indicators']['quote'][0]
-        closes = [c for c in quote['close'] if c is not None]
-
-        if len(closes) < RSI_PERIOD + 1:
-            return display_name, None
-
-        rsi = calculate_rsi(closes, RSI_PERIOD)
-        return display_name, rsi
-
-    except Exception as e:
-        print(f"❌ {display_name}: خطا -> {e}")
-        return display_name, None
-
-
 def main():
+    if not is_within_active_hours():
+        print(f"⏸️ خارج از بازه فعال ({ACTIVE_START_HOUR} تا {ACTIVE_END_HOUR} به وقت ایران). برنامه متوقف می‌شود.")
+        return
+
     overbought_list = []
     oversold_list = []
 
-    print(f"🔍 شروع اسکن {len(PAIRS)} نماد کریپتو در تایم‌فریم {INTERVAL} دقیقه...")
+    print(f"🔍 شروع اسکن {len(PAIRS)} نماد در تایم‌فریم {INTERVAL} دقیقه...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = executor.map(check_rsi, PAIRS)
@@ -180,21 +155,10 @@ def main():
             elif rsi <= OVERSOLD:
                 oversold_list.append((symbol, rsi))
 
-    print(f"🔍 شروع اسکن {len(FOREX_PAIRS)} جفت‌ارز فارکس/طلا در تایم‌فریم {YAHOO_INTERVAL}...")
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        forex_results = executor.map(
-            lambda item: check_rsi_forex(item[0], item[1]), FOREX_PAIRS.items()
-        )
-
-        for display_name, rsi in forex_results:
-            if rsi is None:
-                continue
-            print(f"{display_name}: RSI = {rsi}")
-            if rsi >= OVERBOUGHT:
-                overbought_list.append((display_name, rsi))
-            elif rsi <= OVERSOLD:
-                oversold_list.append((display_name, rsi))
+    # اگه هیچ سیگنالی نبود، هیچ پیامی ارسال نمی‌شه
+    if not overbought_list and not oversold_list:
+        print("ℹ️ هیچ سیگنالی یافت نشد. پیامی ارسال نمی‌شود.")
+        return
 
     # مرتب‌سازی
     overbought_list.sort(key=lambda x: x[1], reverse=True)
@@ -213,9 +177,6 @@ def main():
         for symbol, rsi in oversold_list:
             message_lines.append(f"• {html.escape(symbol)} — RSI: {rsi}")
         message_lines.append("")
-
-    if not overbought_list and not oversold_list:
-        message_lines.append("در حال حاضر هیچ نمادی در محدوده اشباع خرید یا فروش نیست.")
 
     final_message = "\n".join(message_lines)
     print("----- پیام نهایی -----")

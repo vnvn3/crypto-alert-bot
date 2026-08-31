@@ -18,11 +18,26 @@ PAIRS = [
     "NOTUSDT", "BANANAUSDT", "1000SATSUSDT", "OMNIUSDT", "REZUSDT", "LISTAUSDT", "ZROUSDT", "1000RATSUSDT", "1000CATSUSDT", "SCRUSDT"
 ]
 
+# جفت‌ارزهای فارکس و طلا (از Yahoo Finance گرفته می‌شن، نه Bybit)
+# کلید = نماد Yahoo Finance | مقدار = نامی که در پیام تلگرام نشون داده می‌شه
+FOREX_PAIRS = {
+    "EURUSD=X": "EURUSD",
+    "GBPUSD=X": "GBPUSD",
+    "XAUUSD=X": "XAUUSD",
+    "USDJPY=X": "USDJPY",
+    "AUDUSD=X": "AUDUSD",
+    "USDCHF=X": "USDCHF",
+    "USDCAD=X": "USDCAD",
+    "NZDUSD=X": "NZDUSD",
+}
+
 # --- تنظیمات قابل تغییر ---
-INTERVAL = "5"          # تایم‌فریم: 1, 3, 5, 15, 30, 60, 240, D
+INTERVAL = "15"          # تایم‌فریم کریپتو (Bybit): 1, 3, 5, 15, 30, 60, 240, D
+YAHOO_INTERVAL = "15m"   # تایم‌فریم فارکس (Yahoo): 5m, 15m, 30m, 60m
+YAHOO_RANGE = "5d"       # بازه داده تاریخی فارکس
 RSI_PERIOD = 14
-OVERBOUGHT = 59
-OVERSOLD = 38
+OVERBOUGHT = 70
+OVERSOLD = 30
 KLINE_LIMIT = RSI_PERIOD + 50  # داده کافی برای محاسبه دقیق‌تر RSI
 
 
@@ -74,36 +89,83 @@ def calculate_rsi(closes, period=14):
 
 def check_rsi(symbol):
     """برای یک نماد، RSI رو از Bybit می‌گیره و برمی‌گردونه"""
+    # دو دامنه امتحان می‌کنیم چون گاهی یکی از این‌ها توسط Bybit برای IP سرورهای ابری مسدود می‌شه
+    domains = ["https://api.bybit.com", "https://api.bytick.com"]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    }
+
+    last_error = None
+
+    for domain in domains:
+        try:
+            url = f"{domain}/v5/market/kline?category=linear&symbol={symbol}&interval={INTERVAL}&limit={KLINE_LIMIT}"
+            response = requests.get(url, headers=headers, timeout=8)
+
+            if response.status_code != 200:
+                last_error = f"HTTP {response.status_code} از {domain} -> {response.text[:150]}"
+                continue
+
+            try:
+                data = response.json()
+            except ValueError:
+                last_error = f"JSON نامعتبر از {domain} -> {response.text[:150]}"
+                continue
+
+            if data.get('retCode') != 0:
+                last_error = f"خطای API از {domain} -> {data.get('retMsg')}"
+                continue
+
+            klines = data['result']['list']
+            if len(klines) < RSI_PERIOD + 1:
+                return symbol, None
+
+            klines.reverse()
+            closes = [float(k[4]) for k in klines]
+
+            rsi = calculate_rsi(closes, RSI_PERIOD)
+            return symbol, rsi
+
+        except Exception as e:
+            last_error = f"استثنا از {domain} -> {e}"
+            continue
+
+    print(f"⚠️ {symbol}: هر دو دامنه شکست خوردن. آخرین خطا: {last_error}")
+    return symbol, None
+
+
+def check_rsi_forex(yahoo_symbol, display_name):
+    """برای یک جفت‌ارز فارکس/طلا، RSI رو از Yahoo Finance می‌گیره و برمی‌گردونه"""
     try:
-        url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval={INTERVAL}&limit={KLINE_LIMIT}"
-        response = requests.get(url, timeout=8)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}?interval={YAHOO_INTERVAL}&range={YAHOO_RANGE}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=8)
         data = response.json()
 
-        if data.get('retCode') != 0:
-            print(f"⚠️ {symbol}: خطای API -> {data.get('retMsg')}")
-            return symbol, None
+        result = data.get('chart', {}).get('result')
+        if not result:
+            print(f"⚠️ {display_name}: داده‌ای برنگشت")
+            return display_name, None
 
-        klines = data['result']['list']
-        if len(klines) < RSI_PERIOD + 1:
-            return symbol, None
+        quote = result[0]['indicators']['quote'][0]
+        closes = [c for c in quote['close'] if c is not None]
 
-        # داده‌های Bybit از جدید به قدیم هستن، برعکسش می‌کنیم تا قدیم به جدید بشه
-        klines.reverse()
-        closes = [float(k[4]) for k in klines]  # ایندکس 4 = close price
+        if len(closes) < RSI_PERIOD + 1:
+            return display_name, None
 
         rsi = calculate_rsi(closes, RSI_PERIOD)
-        return symbol, rsi
+        return display_name, rsi
 
     except Exception as e:
-        print(f"❌ {symbol}: خطا -> {e}")
-        return symbol, None
+        print(f"❌ {display_name}: خطا -> {e}")
+        return display_name, None
 
 
 def main():
     overbought_list = []
     oversold_list = []
 
-    print(f"🔍 شروع اسکن {len(PAIRS)} نماد در تایم‌فریم {INTERVAL} دقیقه...")
+    print(f"🔍 شروع اسکن {len(PAIRS)} نماد کریپتو در تایم‌فریم {INTERVAL} دقیقه...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = executor.map(check_rsi, PAIRS)
@@ -116,6 +178,22 @@ def main():
                 overbought_list.append((symbol, rsi))
             elif rsi <= OVERSOLD:
                 oversold_list.append((symbol, rsi))
+
+    print(f"🔍 شروع اسکن {len(FOREX_PAIRS)} جفت‌ارز فارکس/طلا در تایم‌فریم {YAHOO_INTERVAL}...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        forex_results = executor.map(
+            lambda item: check_rsi_forex(item[0], item[1]), FOREX_PAIRS.items()
+        )
+
+        for display_name, rsi in forex_results:
+            if rsi is None:
+                continue
+            print(f"{display_name}: RSI = {rsi}")
+            if rsi >= OVERBOUGHT:
+                overbought_list.append((display_name, rsi))
+            elif rsi <= OVERSOLD:
+                oversold_list.append((display_name, rsi))
 
     # مرتب‌سازی
     overbought_list.sort(key=lambda x: x[1], reverse=True)

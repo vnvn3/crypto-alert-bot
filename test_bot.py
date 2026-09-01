@@ -187,7 +187,7 @@ def main():
                 threshold = level_value * ALERT_THRESHOLD
                 if distance <= threshold:
                     alert_message = f"🚨 {symbol}: قیمت ({current_price:.4f}) به {level_name} ({level_value:.4f}) نزدیک است!"
-                    alerts.append(alert_message)
+                    ###alerts.append(alert_message)
 
             # چک الگوی اسپایک
             if spike_detected:

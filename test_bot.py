@@ -28,7 +28,7 @@ SPIKE_MIN_BODY_RATIO = 0.02  # حداقل نسبت بدنه به سایه برا
 SPIKE_MIN_SIZE_RATIO = 2.0   # حداقل نسبت اندازه بدنه اسپایک به کندل قبلی
 
 # بازه ساعتی مجاز برای ارسال سیگنال (به وقت ایران)
-ACTIVE_START_HOUR = 9
+ACTIVE_START_HOUR =7
 ACTIVE_END_HOUR = 23
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
 

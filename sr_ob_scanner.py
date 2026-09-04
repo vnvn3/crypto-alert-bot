@@ -9,39 +9,47 @@ import concurrent.futures
 from datetime import datetime, timezone, timedelta
 
 # ==========================================================
-# تنظیمات اصلی
+# تنظیمات
 # ==========================================================
-INTERVAL = "5"                  # تایم‌فریم ۵ دقیقه
-KLINE_LIMIT = 200               # کندل بیشتر برای سوئینگ و OB
-TOP_N_SYMBOLS = 200             # تعداد نماد پرحجم
-MIN_VOL_USD_24H = 3_000_000     # حداقل حجم ۲۴ ساعته (فیلتر نماد مرده)
+INTERVAL = "5"
+KLINE_LIMIT = 200
+TOP_N_SYMBOLS = 200
+MIN_VOL_USD_24H = 3_000_000
 
-# --- حساسیت سطوح ---
-PROXIMITY_PCT = 0.0030          # 0.30% فاصله = «نزدیک سطح»
-OB_PROXIMITY_PCT = 0.0045       # نزدیکی به مرکز زون Order Block
-
-# --- سوئینگ ---
+# --- کف/سقف و سوئینگ ---
+PROXIMITY_PCT = 0.0025
 SWING_LEFT = 3
 SWING_RIGHT = 3
-MAX_SWING_AGE = 150             # سوئینگ قدیمی‌تر از این نادیده گرفته شود
-MIN_SWING_DEPTH_PCT = 0.006     # عمق حرکت بعد از سوئینگ حداقل 0.6%
-MIN_SWING_TOUCHES_GAP = 5       # حداقل فاصله کندلی بین سوئینگ و الان
+MAX_SWING_AGE = 150
+MIN_SWING_DEPTH_PCT = 0.006
+MIN_SWING_GAP = 5
 
-# --- Order Block ---
-OB_IMPULSE_MULTIPLIER = 2.0     # بدنه ایمپالس ≥ ۲ برابر میانگین بدنه
-OB_LOOKBACK = 120               # محدوده جستجوی OB
-OB_MAX_AGE = 120                # OB قدیمی‌تر از این نادیده گرفته شود
-OB_MIN_AGE = 3                  # OB تازه‌تر از این نادیده گرفته شود
-MAX_OB_PER_SIDE = 2             # حداکثر OB گزارش‌شده در هر جهت
+# ==========================================================
+# >>> تنظیمات Order Block (بازنویسی‌شده) <<<
+# ==========================================================
+OB_IMPULSE_MULTIPLIER = 2.0   # بدنه ایمپالس ≥ ۲ برابر میانگین
+OB_LOOKBACK = 120             # محدوده جستجوی OB
+OB_MAX_AGE = 80               # OB قدیمی‌تر از این کاملاً نادیده گرفته شود
+OB_MIN_AGE = 2
+
+# --- «خیلی نزدیک» یعنی چقدر؟ ---
+OB_NEAR_PCT_MIN = 0.0010      # حداقل آستانه: 0.10%
+OB_NEAR_PCT_MAX = 0.0035      # حداکثر آستانه: 0.35%
+OB_NEAR_ATR_MULT = 0.45       # آستانه پویا = 0.45 × ATR (بین دو مقدار بالا clamp می‌شود)
+
+# --- فقط لمس تازه گزارش شود ---
+OB_FRESH_LOOKBACK = 4         # اگر در N کندل اخیر هم نزدیک بوده → تکراری است
+OB_REQUIRE_FRESH = True       # False کنید تا هر بار داخل زون بودن هم گزارش شود
+OB_ONLY_NEAREST = True        # فقط نزدیک‌ترین OB هر جهت گزارش شود
 
 # --- فیلتر کیفیت ---
-MIN_ATR_PCT = 0.05              # حداقل نوسان میانگین (٪) تا نماد کم‌جان رد شود
-MAX_SIGNALS_PER_SYMBOL = 3      # حداکثر سیگنال گزارش‌شده برای هر نماد
+MIN_ATR_PCT = 0.05
+MAX_SIGNALS_PER_SYMBOL = 3
 
 # --- ضد تکرار ---
 ENABLE_DEDUP = True
 STATE_FILE = "sr_ob_state.json"
-DEDUP_COOLDOWN_MIN = 90         # تا این مدت سیگنال مشابه دوباره ارسال نشود
+DEDUP_COOLDOWN_MIN = 60
 
 # --- شبکه ---
 MAX_WORKERS = 6
@@ -50,7 +58,6 @@ MAX_RETRIES = 3
 RATE_LIMIT_PER_SEC = 15
 TELEGRAM_MAX_LEN = 4000
 
-# --- ساعت فعال ---
 ACTIVE_START_HOUR = 7
 ACTIVE_END_HOUR = 23
 IRAN_TZ = timezone(timedelta(hours=3, minutes=30))
@@ -66,17 +73,16 @@ _req_times = []
 
 
 # ==========================================================
-# ابزارهای پایه
+# ابزارها
 # ==========================================================
 def rate_limit():
-    """حداکثر RATE_LIMIT_PER_SEC درخواست در ثانیه — جلوگیری از HTTP 429."""
     with _rate_lock:
         now = time.time()
         _req_times[:] = [t for t in _req_times if now - t < 1.0]
         if len(_req_times) >= RATE_LIMIT_PER_SEC:
-            wait = 1.0 - (now - _req_times[0])
-            if wait > 0:
-                time.sleep(wait)
+            w = 1.0 - (now - _req_times[0])
+            if w > 0:
+                time.sleep(w)
         _req_times.append(time.time())
 
 
@@ -90,7 +96,6 @@ def safe_div(a, b, default=0.0):
 
 
 def pct_diff(a, b):
-    """اختلاف نسبی امن بین دو قیمت."""
     if b <= 0:
         return 999.0
     return abs(a - b) / b
@@ -100,9 +105,6 @@ def is_within_active_hours():
     return ACTIVE_START_HOUR <= datetime.now(IRAN_TZ).hour < ACTIVE_END_HOUR
 
 
-# ==========================================================
-# تلگرام
-# ==========================================================
 def send_telegram_message(message):
     token = os.environ.get("BOT_TOKEN")
     chat_id = os.environ.get("CHANNEL_ID")
@@ -110,17 +112,16 @@ def send_telegram_message(message):
         print("🚨 BOT_TOKEN یا CHANNEL_ID تنظیم نشده!")
         return False
     try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": message,
-                  "parse_mode": "HTML", "disable_web_page_preview": True},
-            timeout=15)
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                          json={"chat_id": chat_id, "text": message,
+                                "parse_mode": "HTML",
+                                "disable_web_page_preview": True}, timeout=15)
         if r.status_code != 200:
             print(f"❌ تلگرام {r.status_code}: {r.text[:200]}")
             return False
         return True
     except Exception as e:
-        print(f"❌ خطای شبکه تلگرام: {e}")
+        print(f"❌ خطای تلگرام: {e}")
         return False
 
 
@@ -137,14 +138,11 @@ def send_long_message(text):
     return ok
 
 
-# ==========================================================
-# ضد تکرار (اختیاری - نیاز به cache در Actions)
-# ==========================================================
 def load_state():
     if not ENABLE_DEDUP:
         return {}
     try:
-        with open(STATE_FILE, "r") as f:
+        with open(STATE_FILE) as f:
             return json.load(f)
     except Exception:
         return {}
@@ -164,13 +162,11 @@ def is_duplicate(state, key, now_ts):
     if not ENABLE_DEDUP:
         return False
     last = state.get(key)
-    if last is None:
-        return False
-    return (now_ts - last) < DEDUP_COOLDOWN_MIN * 60
+    return last is not None and (now_ts - last) < DEDUP_COOLDOWN_MIN * 60
 
 
 # ==========================================================
-# دریافت لیست نمادهای معتبر و پرحجم از OKX
+# دریافت داده
 # ==========================================================
 def get_top_symbols():
     try:
@@ -179,7 +175,6 @@ def get_top_symbols():
                         timeout=15)
         data = r.json()
         if data.get("code") != "0":
-            print(f"⚠️ خطا در tickers: {data.get('msg')}")
             return []
         rows = []
         for t in data.get("data", []):
@@ -188,12 +183,12 @@ def get_top_symbols():
                 continue
             try:
                 last = float(t.get("last") or 0)
-                vol_usd = float(t.get("volCcy24h") or 0) * last
+                vol = float(t.get("volCcy24h") or 0) * last
             except ValueError:
                 continue
-            if vol_usd < MIN_VOL_USD_24H or last <= 0:
+            if vol < MIN_VOL_USD_24H or last <= 0:
                 continue
-            rows.append((inst, vol_usd))
+            rows.append((inst, vol))
         rows.sort(key=lambda x: x[1], reverse=True)
         sel = [i for i, _ in rows[:TOP_N_SYMBOLS]]
         print(f"📋 {len(sel)} نماد معتبر دریافت شد.")
@@ -216,113 +211,131 @@ def fetch_candles(inst_id):
                 continue
             if r.status_code != 200:
                 return None
-            data = r.json()
-            if data.get("code") != "0":
+            d = r.json()
+            if d.get("code") != "0":
                 return None
-            return data.get("data", [])
+            return d.get("data", [])
         except requests.exceptions.RequestException:
             time.sleep(1 + attempt)
     return None
 
 
 # ==========================================================
-# ۱) سوئینگ‌های چرخشی (کف/سقف قبلی) — بهینه‌شده
+# سوئینگ‌ها
 # ==========================================================
 def find_swings(highs, lows):
-    """
-    فرکتال ساده: کندلی که سقف/کف آن در پنجره چپ+راست یکتا و اکسترمم باشد.
-    خروجی: (لیست سوئینگ‌های، لیست سوئینگ‌لو) به‌صورت (index, price)
-    """
     sh, sl = [], []
     n = len(highs)
     if n < SWING_LEFT + SWING_RIGHT + 2:
         return sh, sl
-
     for i in range(SWING_LEFT, n - SWING_RIGHT):
-        lo_i = i - SWING_LEFT
-        hi_i = i + SWING_RIGHT + 1
-
+        a, b = i - SWING_LEFT, i + SWING_RIGHT + 1
         h = highs[i]
-        if h > 0:
-            is_high = True
-            for j in range(lo_i, hi_i):
-                if j != i and highs[j] >= h:
-                    is_high = False
-                    break
-            if is_high:
-                sh.append((i, h))
-
+        if h > 0 and all(highs[j] < h for j in range(a, b) if j != i):
+            sh.append((i, h))
         l = lows[i]
-        if l > 0:
-            is_low = True
-            for j in range(lo_i, hi_i):
-                if j != i and lows[j] <= l:
-                    is_low = False
-                    break
-            if is_low:
-                sl.append((i, l))
+        if l > 0 and all(lows[j] > l for j in range(a, b) if j != i):
+            sl.append((i, l))
     return sh, sl
 
 
 # ==========================================================
-# ۲) Order Block های مصرف‌نشده — بهینه‌شده O(n)
+# Order Block ها (کشف زون‌های معتبر)
 # ==========================================================
 def find_order_blocks(opens, highs, lows, closes):
-    """
-    Bullish OB : آخرین کندل نزولی قبل از ایمپالس صعودی که سقفش شکسته شده
-    Bearish OB : آخرین کندل صعودی قبل از ایمپالس نزولی که کفش شکسته شده
-    Mitigation با suffix-min/suffix-max در O(n) چک می‌شود (به‌جای O(n²)).
-    """
     n = len(closes)
     if n < 30:
         return []
 
     bodies = [abs(closes[i] - opens[i]) for i in range(n)]
-    window = bodies[-60:] if n >= 60 else bodies
-    avg_body = safe_div(sum(window), len(window))
+    win = bodies[-60:] if n >= 60 else bodies
+    avg_body = safe_div(sum(win), len(win))
     if avg_body <= 0:
         return []
 
-    # suffix_min_low[i] = کمترین low از i تا انتها
-    suffix_min_low = [0.0] * (n + 1)
-    suffix_max_high = [0.0] * (n + 1)
-    suffix_min_low[n] = float("inf")
-    suffix_max_high[n] = float("-inf")
+    # suffix min/max برای چک mitigation در O(n)
+    smin = [float("inf")] * (n + 1)
+    smax = [float("-inf")] * (n + 1)
     for i in range(n - 1, -1, -1):
-        suffix_min_low[i] = min(lows[i], suffix_min_low[i + 1])
-        suffix_max_high[i] = max(highs[i], suffix_max_high[i + 1])
+        smin[i] = min(lows[i], smin[i + 1])
+        smax[i] = max(highs[i], smax[i + 1])
 
-    bulls, bears = [], []
+    obs = []
     start = max(1, n - OB_LOOKBACK)
-
     for i in range(start, n - 2):
-        body_imp = bodies[i + 1]
-        if body_imp < avg_body * OB_IMPULSE_MULTIPLIER:
+        if bodies[i + 1] < avg_body * OB_IMPULSE_MULTIPLIER:
             continue
-
         z_low, z_high = lows[i], highs[i]
         if z_high <= z_low or z_low <= 0:
             continue
 
-        # --- Bullish OB ---
-        if closes[i] < opens[i] and closes[i + 1] > opens[i + 1] \
-                and closes[i + 1] > highs[i]:
-            # اگر بعداً قیمت زیر کف زون رفته باشد، OB باطل است
-            if suffix_min_low[i + 2] >= z_low:
-                bulls.append((z_low, z_high, i))
+        # Bullish OB
+        if closes[i] < opens[i] and closes[i + 1] > opens[i + 1] and closes[i + 1] > highs[i]:
+            if smin[i + 2] >= z_low:          # هنوز شکسته نشده
+                obs.append(("BULLISH", z_low, z_high, i))
 
-        # --- Bearish OB ---
-        if closes[i] > opens[i] and closes[i + 1] < opens[i + 1] \
-                and closes[i + 1] < lows[i]:
-            if suffix_max_high[i + 2] <= z_high:
-                bears.append((z_low, z_high, i))
+        # Bearish OB
+        if closes[i] > opens[i] and closes[i + 1] < opens[i + 1] and closes[i + 1] < lows[i]:
+            if smax[i + 2] <= z_high:
+                obs.append(("BEARISH", z_low, z_high, i))
+    return obs
 
-    # فقط جدیدترین OB ها را نگه دار
-    bulls = bulls[-MAX_OB_PER_SIDE:]
-    bears = bears[-MAX_OB_PER_SIDE:]
 
-    out = [("BULLISH", *b) for b in bulls] + [("BEARISH", *b) for b in bears]
-    return out
+# ==========================================================
+# >>> ارزیابی نزدیکی به OB — بخش اصلی بازنویسی‌شده <<<
+# ==========================================================
+def evaluate_ob(ob, price, highs, lows, n, near_thr):
+    """
+    فقط دو حالت را قبول می‌کند:
+      A) قیمت داخل زون است (رسیده)  → state = "inside"
+      B) قیمت خیلی نزدیک زون است و از سمت درست نزدیک می‌شود → state = "approach"
+
+    خروجی: dict یا None
+    """
+    ob_type, z_low, z_high, idx = ob
+    age = n - 1 - idx
+    if age < OB_MIN_AGE or age > OB_MAX_AGE:
+        return None
+    if z_low <= 0 or z_high <= z_low or price <= 0:
+        return None
+
+    inside = z_low <= price <= z_high
+
+    if ob_type == "BULLISH":
+        # زون حمایتی: قیمت باید بالای زون باشد و به سمت پایین بیاید
+        if inside:
+            state, dist = "inside", 0.0
+        elif price > z_high:
+            dist = (price - z_high) / price
+            if dist > near_thr:
+                return None                 # هنوز خیلی دور است
+            state = "approach"
+        else:
+            return None                     # قیمت زیر زون → باطل شده
+    else:  # BEARISH
+        if inside:
+            state, dist = "inside", 0.0
+        elif price < z_low:
+            dist = (z_low - price) / price
+            if dist > near_thr:
+                return None
+            state = "approach"
+        else:
+            return None                     # قیمت بالای زون → باطل شده
+
+    # ---- چک «لمس تازه»: در کندل‌های اخیر نباید قبلاً نزدیک/داخل بوده باشد ----
+    if OB_REQUIRE_FRESH and n > OB_FRESH_LOOKBACK + 1:
+        pad_low = z_low * (1 - near_thr)
+        pad_high = z_high * (1 + near_thr)
+        for k in range(n - 1 - OB_FRESH_LOOKBACK, n - 1):
+            if k < 0:
+                continue
+            # اگر کندل قبلی هم با زون همپوشانی داشته → این لمس تازه نیست
+            if lows[k] <= pad_high and highs[k] >= pad_low:
+                return None
+
+    return {"type": ob_type, "low": z_low, "high": z_high,
+            "age": age, "state": state, "dist": dist}
 
 
 # ==========================================================
@@ -333,9 +346,8 @@ def check_symbol(inst_id):
         candles = fetch_candles(inst_id)
         if not candles:
             return inst_id, None
-
         closed = [c for c in candles if c and c[-1] == "1"]
-        closed.reverse()  # قدیمی → جدید
+        closed.reverse()
         if len(closed) < 60:
             return inst_id, None
 
@@ -352,77 +364,81 @@ def check_symbol(inst_id):
         if price <= 0:
             return inst_id, None
 
-        # --- فیلتر نوسان: نمادهای بی‌جان رد شوند ---
         atr = safe_div(sum(highs[-14:][k] - lows[-14:][k] for k in range(14)), 14)
         atr_pct = safe_div(atr, price) * 100
         if atr_pct < MIN_ATR_PCT:
             return inst_id, None
 
+        # آستانه نزدیکی پویا بر اساس نوسان نماد
+        near_thr = (atr_pct / 100) * OB_NEAR_ATR_MULT
+        near_thr = max(OB_NEAR_PCT_MIN, min(OB_NEAR_PCT_MAX, near_thr))
+
         signals = []
 
-        # ---------- ۱) سقف / کف محدوده ----------
-        range_high = max(highs[:-1])
-        range_low = min(lows[:-1])
+        # ---------- سقف/کف محدوده ----------
+        rh, rl = max(highs[:-1]), min(lows[:-1])
+        if rh > 0 and pct_diff(price, rh) <= PROXIMITY_PCT:
+            signals.append(("⛰", f"نزدیک <b>سقف محدوده</b> ({rh:.6g})", 3))
+        if rl > 0 and pct_diff(price, rl) <= PROXIMITY_PCT:
+            signals.append(("🕳", f"نزدیک <b>کف محدوده</b> ({rl:.6g})", 3))
 
-        if range_high > 0 and pct_diff(price, range_high) <= PROXIMITY_PCT:
-            signals.append(("⛰", f"نزدیک <b>سقف محدوده</b> ({range_high:.6g})", 3))
-        if range_low > 0 and pct_diff(price, range_low) <= PROXIMITY_PCT:
-            signals.append(("🕳", f"نزدیک <b>کف محدوده</b> ({range_low:.6g})", 3))
-
-        # ---------- ۲) سوئینگ قبلی ----------
+        # ---------- سوئینگ قبلی ----------
         sh, sl = find_swings(highs, lows)
-
-        # نزدیک‌ترین سوئینگ‌های معتبر (از جدید به قدیم)
         for idx, lvl in reversed(sh):
             age = n - 1 - idx
-            if age > MAX_SWING_AGE or age < MIN_SWING_TOUCHES_GAP:
+            if age > MAX_SWING_AGE or age < MIN_SWING_GAP:
                 continue
             if pct_diff(price, lvl) > PROXIMITY_PCT:
                 continue
-            depth = safe_div(lvl - min(lows[idx + 1:]), lvl)
-            if depth >= MIN_SWING_DEPTH_PCT:
-                signals.append(("🔴", f"رسیدن به <b>سقف قبلی</b> ({lvl:.6g}) — {age} کندل پیش", 2))
+            if safe_div(lvl - min(lows[idx + 1:]), lvl) >= MIN_SWING_DEPTH_PCT:
+                signals.append(("🔴", f"رسیدن به <b>سقف قبلی</b> ({lvl:.6g})", 2))
                 break
-
         for idx, lvl in reversed(sl):
             age = n - 1 - idx
-            if age > MAX_SWING_AGE or age < MIN_SWING_TOUCHES_GAP:
+            if age > MAX_SWING_AGE or age < MIN_SWING_GAP:
                 continue
             if pct_diff(price, lvl) > PROXIMITY_PCT:
                 continue
-            depth = safe_div(max(highs[idx + 1:]) - lvl, lvl)
-            if depth >= MIN_SWING_DEPTH_PCT:
-                signals.append(("🟢", f"رسیدن به <b>کف قبلی</b> ({lvl:.6g}) — {age} کندل پیش", 2))
+            if safe_div(max(highs[idx + 1:]) - lvl, lvl) >= MIN_SWING_DEPTH_PCT:
+                signals.append(("🟢", f"رسیدن به <b>کف قبلی</b> ({lvl:.6g})", 2))
                 break
 
-        # ---------- ۳) Order Block ----------
-        for ob_type, z_low, z_high, idx in find_order_blocks(opens, highs, lows, closes):
-            age = n - 1 - idx
-            if age < OB_MIN_AGE or age > OB_MAX_AGE:
-                continue
-            z_mid = (z_low + z_high) / 2
-            if z_mid <= 0:
-                continue
-            in_zone = z_low <= price <= z_high
-            near_zone = pct_diff(price, z_mid) <= OB_PROXIMITY_PCT
-            if not (in_zone or near_zone):
-                continue
-            emoji = "🟩" if ob_type == "BULLISH" else "🟥"
-            tag = "داخل زون" if in_zone else "نزدیک زون"
-            label = "حمایتی" if ob_type == "BULLISH" else "مقاومتی"
+        # ---------- Order Block ----------
+        hits = []
+        for ob in find_order_blocks(opens, highs, lows, closes):
+            ev = evaluate_ob(ob, price, highs, lows, n, near_thr)
+            if ev:
+                hits.append(ev)
+
+        if hits and OB_ONLY_NEAREST:
+            best = {}
+            for h in hits:
+                cur = best.get(h["type"])
+                if cur is None or h["dist"] < cur["dist"]:
+                    best[h["type"]] = h
+            hits = list(best.values())
+
+        for h in hits:
+            bullish = h["type"] == "BULLISH"
+            emoji = "🟩" if bullish else "🟥"
+            label = "حمایتی" if bullish else "مقاومتی"
+            if h["state"] == "inside":
+                status = "✅ <b>رسید (داخل زون)</b>"
+                prio = 1
+            else:
+                status = f"⏳ <b>در آستانه</b> (فاصله {h['dist'] * 100:.2f}%)"
+                prio = 1 if h["dist"] <= near_thr / 2 else 2
             signals.append((emoji,
-                            f"<b>Order Block {label}</b> ({tag}) "
-                            f"[{z_low:.6g} – {z_high:.6g}] — {age} کندل پیش",
-                            1 if in_zone else 2))
+                            f"OB {label} — {status}\n"
+                            f"      زون: <code>{h['low']:.6g} – {h['high']:.6g}</code>",
+                            prio))
 
         if not signals:
             return inst_id, None
 
-        # اولویت‌بندی: اهمیت بیشتر (عدد کمتر) اول
         signals.sort(key=lambda x: x[2])
-        signals = signals[:MAX_SIGNALS_PER_SYMBOL]
-
-        return inst_id, {"price": price, "atr_pct": atr_pct, "signals": signals}
+        return inst_id, {"price": price, "atr_pct": atr_pct,
+                         "signals": signals[:MAX_SIGNALS_PER_SYMBOL]}
 
     except Exception as e:
         print(f"❌ {inst_id}: {type(e).__name__} -> {e}")
@@ -434,7 +450,7 @@ def check_symbol(inst_id):
 # ==========================================================
 def main():
     if not is_within_active_hours():
-        print(f"⏸️ خارج از بازه فعال ({ACTIVE_START_HOUR}-{ACTIVE_END_HOUR} ایران).")
+        print(f"⏸️ خارج از بازه فعال ({ACTIVE_START_HOUR}-{ACTIVE_END_HOUR}).")
         return
 
     t0 = time.time()
@@ -443,16 +459,14 @@ def main():
         print("❌ لیست نمادها خالی است.")
         return
 
-    print(f"🔍 اسکن {len(symbols)} نماد | تایم {INTERVAL}m | کف/سقف + Order Block ...")
-
+    print(f"🔍 اسکن {len(symbols)} نماد | تایم {INTERVAL}m ...")
     state = load_state()
     now_ts = time.time()
-    found = []
-    errors = 0
+    found, errors = [], 0
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = {ex.submit(check_symbol, s): s for s in symbols}
-        for fut in concurrent.futures.as_completed(futures):
+        futs = {ex.submit(check_symbol, s): s for s in symbols}
+        for fut in concurrent.futures.as_completed(futs):
             try:
                 inst_id, res = fut.result()
             except Exception as e:
@@ -461,56 +475,42 @@ def main():
                 continue
             if not res:
                 continue
-
             name = inst_id.replace("-USDT-SWAP", "")
-
-            # فیلتر ضد تکرار روی هر سیگنال
             fresh = []
             for emoji, text, prio in res["signals"]:
-                key = f"{name}|{text[:40]}"
+                key = f"{name}|{text[:45]}"
                 if is_duplicate(state, key, now_ts):
                     continue
                 state[key] = now_ts
                 fresh.append((emoji, text, prio))
-
             if fresh:
-                best_prio = min(p for _, _, p in fresh)
-                found.append((best_prio, name, res["price"], res["atr_pct"], fresh))
+                found.append((min(p for _, _, p in fresh), name,
+                              res["price"], res["atr_pct"], fresh))
                 print(f"✅ {name}: {len(fresh)} سیگنال")
 
-    # پاکسازی state قدیمی
-    cutoff = now_ts - DEDUP_COOLDOWN_MIN * 60 * 3
-    state = {k: v for k, v in state.items() if v > cutoff}
-    save_state(state)
-
-    print(f"⏱ زمان اسکن: {time.time() - t0:.1f}s | خطا: {errors}")
+    cutoff = now_ts - DEDUP_COOLDOWN_MIN * 180
+    save_state({k: v for k, v in state.items() if v > cutoff})
+    print(f"⏱ {time.time() - t0:.1f}s | خطا: {errors}")
 
     if not found:
         print("ℹ️ هیچ سیگنال جدیدی یافت نشد.")
         return
 
-    found.sort(key=lambda x: x[0])  # مهم‌ترین‌ها اول
-
+    found.sort(key=lambda x: x[0])
     now_iran = datetime.now(IRAN_TZ).strftime("%H:%M")
-    lines = [
-        f"🎯 <b>اسکنر کف/سقف و Order Block</b>",
-        f"⏱ تایم {INTERVAL}m | 🕐 {now_iran} | 🔍 {len(symbols)} نماد | ✅ {len(found)} نتیجه",
-        "",
-    ]
+    lines = [f"🎯 <b>اسکنر Order Block و سطوح</b>",
+             f"⏱ {INTERVAL}m | 🕐 {now_iran} | 🔍 {len(symbols)} نماد | ✅ {len(found)}",
+             ""]
     for _, name, price, atr_pct, sigs in found:
         lines.append(f"💠 <b>{html.escape(name)}</b> | <code>{price:.6g}</code> "
-                     f"| نوسان: {atr_pct:.2f}%")
+                     f"| نوسان {atr_pct:.2f}%")
         for emoji, text, _ in sigs:
             lines.append(f"   {emoji} {text}")
         lines.append("")
 
     msg = "\n".join(lines)
     print("\n----- پیام نهایی -----\n" + msg)
-
-    if send_long_message(msg):
-        print("✅ ارسال شد.")
-    else:
-        print("❌ ارسال ناموفق.")
+    print("✅ ارسال شد." if send_long_message(msg) else "❌ ارسال ناموفق.")
 
 
 if __name__ == "__main__":

@@ -34,4 +34,4 @@ jobs:
       env:
         BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
         CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-      run: python Test_spike.py
+      run: python spike_detector.py

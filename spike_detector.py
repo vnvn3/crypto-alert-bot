@@ -49,7 +49,7 @@ PAIRS = [
 ]
 
 # --- تنظیمات بهینه برای GitHub Actions ---
-INTERVAL = "15"          # تایم‌فریم 15 دقیقه‌ای
+INTERVAL = "5"          # تایم‌فریم 5 دقیقه‌ای
 KLINE_LIMIT = 100        # 100 کندل = 25 ساعت
 SPIKE_MIN_BODY_RATIO = 0.3  # بدنه ≥ 30% از رنج کندل
 SPIKE_MIN_SIZE_RATIO = 2.0   # بدنه اسپایک ≥ 2 برابر کندل قبلی
